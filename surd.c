@@ -4,6 +4,8 @@
 #include <ctype.h>
 #include "surd.h"
 
+#include "primitives.h"
+
 #define _PRE_INTERNED_SYMBOLS_SIZE 4
 char *_symbols_to_intern[] = {
   "quote", "if", "lambda", "def"
@@ -14,7 +16,6 @@ _symbol_position(surd_t *s, char *sym)
 {
   int i;
   int slen = strlen(sym);
-
   for (i = 0; i < s->symbol_table_index; i++) {
     if (strncmp(s->symbol_table[i].name, sym, slen) == 0) {
       return i;
@@ -74,7 +75,23 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
 static cell_t *
 _eval_if(surd_t *s, cell_t *exp, cell_t *env)
 {
-  return s->nil;
+  cell_t *condition = surd_p_second(s, exp);
+  cell_t *consequent = surd_p_third(s, exp);
+  cell_t *alternate = surd_p_fourth(s, exp);
+
+  cell_t *val = surd_eval(s, condition, env);
+  if (val == s->nil) {
+    if (alternate == s->nil) {
+      return s->nil;
+    }
+    return surd_eval(s, alternate, env);
+  }
+  else {
+    if (consequent == s->nil) {
+      return s->nil;
+    }
+    return surd_eval(s, consequent, env);
+  }
 }
 
 
@@ -89,12 +106,14 @@ surd_init(surd_t *s, int hs, int ss)
   s->symbol_table_index = 0;
   s->symbol_table_size = ss;
   s->nil = malloc(sizeof(s->nil));
-  s->env = surd_new_cell(s);
+  s->env = s->nil;
 
   // intern some useful symbols.
   for (i = 0; i < _PRE_INTERNED_SYMBOLS_SIZE; i++) {
     surd_intern(s, _symbols_to_intern[i]);
   }
+
+  surd_install_primitive(s, "+", _primitive_plus, -1);
 }
 
 void
@@ -174,10 +193,9 @@ surd_intern(surd_t *s, char *str)
       s->symbol_table[i].name = strndup(str, slen);
       s->symbol_table[i].symbol = c;
       s->symbol_table_index++;
-      return c;
     }
     else {
-      fprintf(stderr, "out of memory in intern()\n");
+      fprintf(stderr, "error: out of memory in intern()\n");
       exit(1);
     }
   }
@@ -194,16 +212,29 @@ surd_intern(surd_t *s, char *str)
         s->symbol_table_index++;
       }
       else {
-        fprintf(stderr, "out of memory in intern()\n");
+        fprintf(stderr, "error: out of memory in intern()\n");
         exit(1);
       }
-      return c;
     }
     else {
-      fprintf(stderr, "out of memory in intern()\n");
+      fprintf(stderr, "error: out of memory in intern()\n");
       exit(1);
     }
   }
+  return c;
+}
+
+void
+surd_install_primitive(surd_t *s, char *name, 
+                       cell_t *(*func)(surd_t *, cell_t *), int arity)
+{
+  cell_t *sym = surd_intern(s, name);
+  cell_t *prim = surd_new_cell(s);
+  prim->flags = TPRIMITIVE;
+  prim->_value.primitive.arity = arity;
+  prim->_value.primitive.func = func;
+
+  s->env = _env_insert(s, s->env, sym, prim);
 }
 
 cell_t *
@@ -248,7 +279,7 @@ _read_fixnum(surd_t *s, FILE *in, int sign)
     return fix;
   }
 
-  fprintf(stderr, "Couldn't read fixnum\n");
+  fprintf(stderr, "error: Couldn't read fixnum\n");
   exit(1);
 }
 
@@ -288,7 +319,7 @@ _read_symbol(surd_t *s, FILE *in)
     buffer[i] = 0;
   }
   else {
-    fprintf(stderr, "not a symbol: invalid first char '%c'\n", (char)c);
+    fprintf(stderr, "error: not a symbol: invalid first char '%c'\n", (char)c);
   }
 
   for (;;) {
@@ -302,12 +333,11 @@ _read_symbol(surd_t *s, FILE *in)
       goto done;
     }
     else {
-      fprintf(stderr, "'%c' not a symbol character\n", (char)c);
+      fprintf(stderr, "error: '%c' not a symbol character\n", (char)c);
     }
   }
  done:
-  sym = surd_new_cell(s);
-  surd_intern(s, buffer);
+  sym = surd_intern(s, buffer);
   return sym;
 }
 
@@ -331,7 +361,6 @@ _read_list(surd_t *s, FILE *in)
     if (!tmp) { // got an end delimiter, so we're done
       goto done;
     }
-    printf("read: %p\n", tmp);
     next_next = surd_cons(s, tmp, s->nil);
     next->_value.cons.cdr = next_next;
     next = next_next;
@@ -340,7 +369,7 @@ _read_list(surd_t *s, FILE *in)
  done:
   c = fgetc(in);
   if (c != ')') {
-    fprintf(stderr, "expected ')', but found '%c'\n", c);
+    fprintf(stderr, "error: expected ')', but found '%c'\n", c);
     exit(1);
   }
   return first;
@@ -456,7 +485,9 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
 {
   cell_t *car, *tmp;
   int sym;
-  if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp)) {
+
+  surd_display(s, stdout, exp);
+  if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {
     return exp;
   }
   else if (ISSYM(exp)) {
@@ -479,14 +510,20 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
       return _eval_if(s, exp, env);
     }
     else if (car == surd_intern(s, "lambda")) {
+      fprintf(stderr, "make a closure\n");
       return surd_make_closure(s, exp, env);
     }
     else {
+      // apply
       tmp = surd_eval(s, car, env);
       if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
         fprintf(stderr, "attempt to apply!");
         // surd_apply(s, tmp, _eval_list(s, CDR(exp)))
         return s->nil;
+      }
+      else {
+        fprintf(stderr, "attempt to apply that which is not applyable\n");
+        exit(1);
       }
     }
   }

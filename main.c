@@ -9,6 +9,9 @@ main(int argc, char *argv[])
   surd_init(&surd, 100, 100);
   cell_t *cell = surd_read(&surd, stdin);
 
+  surd_display(&surd, stdout, cell);
+  printf("this is what I found\n");
+
   surd_display(&surd, stdout, surd_eval(&surd, cell, (&surd)->env));
 
   return 0;

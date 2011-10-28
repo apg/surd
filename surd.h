@@ -24,6 +24,10 @@ struct cell {
       cell_t *car;
       cell_t *cdr;
     } cons;
+    struct primitive {
+      int arity;
+      cell_t *(*func)(surd_t *, cell_t *);
+    } primitive;
   } _value;
 };
 
