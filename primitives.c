@@ -5,12 +5,20 @@
 cell_t *
 surd_p_first(surd_t *s, cell_t *args)
 {
+  cell_t *arg1 = CAR(args);
+  if (ISCONS(arg1)) {
+    return CAR(arg1);
+  }
   return s->nil;
 }
 
 cell_t *
 surd_p_rest(surd_t *s, cell_t *args)
 {
+  cell_t *arg1 = CAR(args);
+  if (ISCONS(arg1)) {
+    return CDR(arg1);
+  }
   return s->nil;
 }
 

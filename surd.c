@@ -30,9 +30,9 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
   cell_t *tmp;
   tmp = env;
   while (tmp != s->nil) {
-    surd_display(s, stdout, tmp);
+    //surd_display(s, stdout, tmp);
     if (CAR(CAR(tmp)) == sym) {
-      return CAR(CDR(CAR(tmp)));
+      return CDR(CAR(tmp));
     }
     tmp = CDR(tmp);
   }
@@ -113,7 +113,21 @@ surd_init(surd_t *s, int hs, int ss)
     surd_intern(s, _symbols_to_intern[i]);
   }
 
-  surd_install_primitive(s, "+", _primitive_plus, -1);
+  surd_install_primitive(s, "first", surd_p_first, 1);
+  surd_install_primitive(s, "rest", surd_p_rest, 1);
+
+  surd_install_primitive(s, "cons?", surd_p_consp, -1);
+  surd_install_primitive(s, "fixnum?", surd_p_fixnump, -1);
+  surd_install_primitive(s, "symbol?", surd_p_symbolp, -1);
+  surd_install_primitive(s, "nil?", surd_p_nilp, -1);
+  surd_install_primitive(s, "procedure?", surd_p_procedurep, -1);
+  surd_install_primitive(s, "closure?", surd_p_closurep, -1);
+
+  surd_install_primitive(s, "+", surd_p_plus, -1);
+  surd_install_primitive(s, "-", surd_p_minus, -1);
+  surd_install_primitive(s, "*", surd_p_mult, -1);
+  surd_install_primitive(s, "/", surd_p_div, -1);
+  surd_install_primitive(s, "%", surd_p_mod, -1);
 }
 
 void

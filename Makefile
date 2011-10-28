@@ -4,5 +4,8 @@ CFLAGS = -g -Wall
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-surd: surd.o main.o
+surd: surd.o main.o primitives.o
 	$(CC) $(CFLAGS) -o $@ $^
+
+clean:
+	rm surd *.o
