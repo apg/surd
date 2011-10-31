@@ -3,11 +3,20 @@
 #include "primitives.h"
 
 cell_t *
+surd_p_cons(surd_t *s, cell_t *args)
+{
+  return s->nil;
+}
+
+cell_t *
 surd_p_first(surd_t *s, cell_t *args)
 {
-  cell_t *arg1 = CAR(args);
-  if (ISCONS(arg1)) {
-    return CAR(arg1);
+  cell_t *arg1;
+  if (args != s->nil) {
+    arg1 = CAR(args);
+    if (ISCONS(arg1)) {
+      return CAR(arg1);
+    }
   }
   return s->nil;
 }
@@ -93,7 +102,21 @@ surd_p_closurep(surd_t *s, cell_t *args)
 cell_t *
 surd_p_plus(surd_t *s, cell_t *args)
 {
-  return s->nil;
+  cell_t *tmp = args, *first;
+  int val = 0;
+  while (tmp != s->nil && ISCONS(tmp)) {
+    first = CAR(tmp);
+    if (ISFIXNUM(first)) {
+      val += first->_value.num;
+    }
+    else {
+      fprintf(stderr, "attempt to add a non fixnum: %d\n", tmp->flags);
+    }
+    tmp = CDR(tmp);
+  }
+  tmp = surd_new_cell(s);
+  surd_num_init(s, tmp, val);
+  return tmp;
 }
 
 cell_t *

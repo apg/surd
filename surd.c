@@ -29,14 +29,19 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
 {
   cell_t *tmp;
   tmp = env;
-  while (tmp != s->nil) {
+  while (tmp != s->nil && tmp != NULL) {
     //surd_display(s, stdout, tmp);
-    if (CAR(CAR(tmp)) == sym) {
-      return CDR(CAR(tmp));
+    if (ISCONS(tmp)) {
+      if (ISCONS(CAR(tmp))) {
+        if (CAR(CAR(tmp)) == sym) {
+          return CDR(CAR(tmp));
+        }
+      }
     }
     tmp = CDR(tmp);
   }
-  fprintf(stderr, "symbol %s not found\n", s->symbol_table[sym->_value.num].name);
+  fprintf(stderr, "error: symbol %s not found\n", s->symbol_table[sym->_value.num].name);
+  fflush(stderr);
   exit(1);
 }
 
@@ -106,6 +111,9 @@ surd_init(surd_t *s, int hs, int ss)
   s->symbol_table_index = 0;
   s->symbol_table_size = ss;
   s->nil = malloc(sizeof(s->nil));
+  s->nil->flags = TNIL;
+  s->nil->_value.num = 0;
+
   s->env = s->nil;
 
   // intern some useful symbols.
@@ -113,15 +121,16 @@ surd_init(surd_t *s, int hs, int ss)
     surd_intern(s, _symbols_to_intern[i]);
   }
 
+  surd_install_primitive(s, "cons", surd_p_cons, 2);
   surd_install_primitive(s, "first", surd_p_first, 1);
   surd_install_primitive(s, "rest", surd_p_rest, 1);
 
-  surd_install_primitive(s, "cons?", surd_p_consp, -1);
-  surd_install_primitive(s, "fixnum?", surd_p_fixnump, -1);
-  surd_install_primitive(s, "symbol?", surd_p_symbolp, -1);
-  surd_install_primitive(s, "nil?", surd_p_nilp, -1);
-  surd_install_primitive(s, "procedure?", surd_p_procedurep, -1);
-  surd_install_primitive(s, "closure?", surd_p_closurep, -1);
+  surd_install_primitive(s, "cons?", surd_p_consp, 1);
+  surd_install_primitive(s, "fixnum?", surd_p_fixnump, 1);
+  surd_install_primitive(s, "symbol?", surd_p_symbolp, 1);
+  surd_install_primitive(s, "nil?", surd_p_nilp, 1);
+  surd_install_primitive(s, "procedure?", surd_p_procedurep, 1);
+  surd_install_primitive(s, "closure?", surd_p_closurep, 1);
 
   surd_install_primitive(s, "+", surd_p_plus, -1);
   surd_install_primitive(s, "-", surd_p_minus, -1);
@@ -323,31 +332,35 @@ _eat_comment(FILE *in)
 static cell_t *
 _read_symbol(surd_t *s, FILE *in)
 {
+ 
   cell_t *sym;
   char buffer[128];
   int c, i = 0;
 
   c = fgetc(in);
+
   if (ISINITIAL(c)) {
     buffer[i++] = (char)c;
     buffer[i] = 0;
   }
   else {
     fprintf(stderr, "error: not a symbol: invalid first char '%c'\n", (char)c);
+    exit(1);
   }
 
   for (;;) {
     c = fgetc(in);
-    if (ISSYMCHAR(c)) {
-      buffer[i++] = (char)c;
-      buffer[i] = 0;
-    }
-    else if (ISDELIM(c)) {
+    if (ISDELIM(c)) {
       ungetc(c, in);
       goto done;
     }
+    else if (ISSYMCHAR(c)) {
+      buffer[i++] = (char)c;
+      buffer[i] = 0;
+    }
     else {
       fprintf(stderr, "error: '%c' not a symbol character\n", (char)c);
+      exit(1);
     }
   }
  done:
@@ -434,8 +447,8 @@ _read(surd_t *s, FILE *in)
     case '-':
     case '+':
       l = fgetc(in);
+      ungetc(l, in);
       if (isdigit(l)) {
-        ungetc(l, in);
         return _read_fixnum(s, in, c == '-' ? -1: 1);
       }
     default:
@@ -459,6 +472,7 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
 {
   int sep = 0;
   cell_t *tmp;
+
   if (exp == s->nil) {
     fprintf(out, "()");
   }
@@ -500,7 +514,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
   cell_t *car, *tmp;
   int sym;
 
-  surd_display(s, stdout, exp);
+  //  surd_display(s, stdout, exp);
   if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {
     return exp;
   }
@@ -515,7 +529,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
         return CAR(tmp);
       }
       else {
-        fprintf(stderr, "attempted to take the car of nil\n");
+        fprintf(stderr, "error: attempted to take the car of nil\n");
         // dont' blow up, just return nil
         return s->nil;
       }
@@ -524,19 +538,16 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
       return _eval_if(s, exp, env);
     }
     else if (car == surd_intern(s, "lambda")) {
-      fprintf(stderr, "make a closure\n");
       return surd_make_closure(s, exp, env);
     }
     else {
       // apply
       tmp = surd_eval(s, car, env);
       if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
-        fprintf(stderr, "attempt to apply!");
-        // surd_apply(s, tmp, _eval_list(s, CDR(exp)))
-        return s->nil;
+        return surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
       }
       else {
-        fprintf(stderr, "attempt to apply that which is not applyable\n");
+        fprintf(stderr, "error:attempt to apply that which is not applyable\n");
         exit(1);
       }
     }
@@ -548,6 +559,18 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
 cell_t *
 surd_apply(surd_t *s, cell_t *closure, cell_t *args)
 {
+  if (closure == NULL && closure == s->nil) {
+    fprintf(stderr, "error: attempt to apply a null value\n");
+    exit(1);
+  }
+  if (ISPRIM(closure)) {
+    // need arity checking here, but that also means we need LENGTH
+    return (closure->_value.primitive.func)(s, args);
+  }
+  else if (ISCLOSURE(closure)) {
+    fprintf(stderr, "APPLY A CLOSURE\n");
+  }
+
   return s->nil;
 }
 

@@ -1,6 +1,8 @@
 #ifndef _SURD_PRIMITIVES_H
 #define _SURD_PRIMITIVES_H
 
+cell_t *surd_p_cons(surd_t *s, cell_t *args);
+
 // list selection
 cell_t *surd_p_first(surd_t *s, cell_t *args);
 cell_t *surd_p_rest(surd_t *s, cell_t *args);
