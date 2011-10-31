@@ -7,9 +7,35 @@
 #include "primitives.h"
 
 #define _PRE_INTERNED_SYMBOLS_SIZE 4
-char *_symbols_to_intern[] = {
+static char *_symbols_to_intern[] = {
   "quote", "if", "lambda", "def"
 };
+
+static inline int
+_is_initial(int c) {
+  return (isalpha(c) || \
+          c == '-' || c == '+' ||               \
+          c == '*' || c == '/' ||               \
+          c == '>' || c == '<' ||               \
+          c == '=' || c == '$' ||               \
+          c == '!' || c == '%' ||               \
+          c == '_' || c == '~' ||               \
+          c == '^' || c == '|' ||               \
+          c == '&' ||                           \
+          c == '?' || c == '.');
+}
+
+static inline int
+_is_sym_char(int c) 
+{
+  return (_is_initial(c) || isdigit(c) || c == '\'');
+}
+
+static inline int
+_is_delim(int c)
+{
+  return (c == '(' || c == ')' || c == ';' || isspace(c));
+}
 
 static int
 _symbol_position(surd_t *s, char *sym) 
@@ -106,7 +132,7 @@ surd_init(surd_t *s, int hs, int ss)
   int i;
   s->heap = malloc(sizeof(s->heap) * hs);
   s->heap_size = hs;
-  bzero(s->heap, sizeof(s->heap) * hs);
+  memset(s->heap, 0, sizeof(s->heap) * hs);
   s->symbol_table = malloc(sizeof(s->symbol_table) * ss);
   s->symbol_table_index = 0;
   s->symbol_table_size = ss;
@@ -306,19 +332,6 @@ _read_fixnum(surd_t *s, FILE *in, int sign)
   exit(1);
 }
 
-#define ISINITIAL(c) (isalpha(c) || \
-                      c == '-' || c == '+' ||   \
-                      c == '*' || c == '/' ||   \
-                      c == '>' || c == '<' ||   \
-                      c == '=' || c == '$' ||   \
-                      c == '!' || c == '%' ||   \
-                      c == '_' || c == '~' ||   \
-                      c == '^' || c == '|' ||   \
-                      c == '&' || \
-                      c == '?' || c == '.')
-
-#define ISSYMCHAR(c) (ISINITIAL(c) || isdigit(c) || c == '\'')
-#define ISDELIM(c) (c == '(' || c == ')' || c == ';' || isspace(c))
 
 static void
 _eat_comment(FILE *in)
@@ -339,7 +352,7 @@ _read_symbol(surd_t *s, FILE *in)
 
   c = fgetc(in);
 
-  if (ISINITIAL(c)) {
+  if (_is_initial(c)) {
     buffer[i++] = (char)c;
     buffer[i] = 0;
   }
@@ -350,11 +363,11 @@ _read_symbol(surd_t *s, FILE *in)
 
   for (;;) {
     c = fgetc(in);
-    if (ISDELIM(c)) {
+    if (_is_delim(c)) {
       ungetc(c, in);
       goto done;
     }
-    else if (ISSYMCHAR(c)) {
+    else if (_is_sym_char(c)) {
       buffer[i++] = (char)c;
       buffer[i] = 0;
     }

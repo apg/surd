@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "surd.h"
 #include "primitives.h"
 
@@ -111,6 +112,7 @@ surd_p_plus(surd_t *s, cell_t *args)
     }
     else {
       fprintf(stderr, "attempt to add a non fixnum: %d\n", tmp->flags);
+      exit(1);
     }
     tmp = CDR(tmp);
   }
@@ -122,19 +124,92 @@ surd_p_plus(surd_t *s, cell_t *args)
 cell_t *
 surd_p_minus(surd_t *s, cell_t *args)
 {
+  cell_t *tmp = args, *first;
+  int val = 0;
+  int nands = 0;
+  while (tmp != s->nil && ISCONS(tmp)) {
+    first = CAR(tmp);
+    if (ISFIXNUM(first)) {
+      if (nands > 0) {
+        val -= first->_value.num;
+      }
+      else {
+        val = first->_value.num;
+      }
+      nands++;
+    }
+    else {
+      fprintf(stderr, "error: attempt to add a non fixnum: %d\n", tmp->flags);
+      exit(1);
+    }
+    tmp = CDR(tmp);
+  }
+  if (nands == 1) {
+    val *= -1;
+  }
+  tmp = surd_new_cell(s);
+  surd_num_init(s, tmp, val);
+  return tmp;
+
   return s->nil;
 }
 
 cell_t *
 surd_p_mult(surd_t *s, cell_t *args)
 {
-  return s->nil;
+  cell_t *tmp = args, *first;
+  int val = 1;
+  while (tmp != s->nil && ISCONS(tmp)) {
+    first = CAR(tmp);
+    if (ISFIXNUM(first)) {
+      val *= first->_value.num;
+    }
+    else {
+      fprintf(stderr, "error: attempt to multiply a non fixnum: %d\n", tmp->flags);
+      exit(1);
+    }
+    tmp = CDR(tmp);
+  }
+  tmp = surd_new_cell(s);
+  surd_num_init(s, tmp, val);
+  return tmp;
 }
 
 cell_t *
 surd_p_div(surd_t *s, cell_t *args)
 {
-  return s->nil;
+  cell_t *tmp = args, *first;
+  int val = 0;
+  int nands = 0;
+  while (tmp != s->nil && ISCONS(tmp)) {
+    first = CAR(tmp);
+    if (ISFIXNUM(first)) {
+      if (nands > 0) {
+        if (first->_value.num) {
+          val /= first->_value.num;        
+        }
+        else {
+          fprintf(stderr, "error: attempt to divide by zero\n");
+          exit(1);
+        }
+      }
+      else {
+        val = first->_value.num;
+      }
+      nands++;
+    }
+    else {
+      fprintf(stderr, "attempt to add a non fixnum: %d\n", tmp->flags);
+    }
+    tmp = CDR(tmp);
+  }
+  if (nands == 1) {
+    val = 1 / val;
+  }
+
+  tmp = surd_new_cell(s);
+  surd_num_init(s, tmp, val);
+  return tmp;
 }
 
 cell_t *
