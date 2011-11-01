@@ -37,6 +37,24 @@ _is_delim(int c)
   return (c == '(' || c == ')' || c == ';' || isspace(c));
 }
 
+static inline cell_t *
+_car(surd_t *s, cell_t *c)
+{
+  if (ISCONS(c)) {
+    return CAR(c);
+  }
+  return s->nil;
+}
+
+static inline cell_t *
+_cdr(surd_t *s, cell_t *c)
+{
+  if (ISCONS(c)) {
+    return CDR(c);
+  }
+  return s->nil;
+}
+
 static int
 _symbol_position(surd_t *s, char *sym) 
 {
@@ -129,10 +147,9 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
 static cell_t *
 _eval_if(surd_t *s, cell_t *exp, cell_t *env)
 {
-  cell_t *condition = surd_p_second(s, exp);
-  cell_t *consequent = surd_p_third(s, exp);
-  cell_t *alternate = surd_p_fourth(s, exp);
-
+  cell_t *condition = _car(s, _cdr(s, exp));
+  cell_t *consequent = _car(s, _cdr(s, _cdr(s, exp)));
+  cell_t *alternate = _car(s, _cdr(s, _cdr(s, _cdr(s, exp))));
   cell_t *val = surd_eval(s, condition, env);
   if (val == s->nil) {
     if (alternate == s->nil) {
@@ -331,6 +348,7 @@ surd_install_primitive(surd_t *s, char *name,
   }
   else {
     fprintf(stderr, "error: out of memory in surd_install_primitive\n");
+    exit(1);
   }
 }
 
@@ -342,8 +360,12 @@ surd_cons(surd_t *s, cell_t *car, cell_t *cdr)
     new->flags = TCONS;
     new->_value.cons.car = car;
     new->_value.cons.cdr = cdr;
+    return new;
   }
-  return new;
+  else {
+    fprintf(stderr, "error: out of memory in surd_cons\n");
+    exit(1);
+  }
 }
 
 cell_t *
@@ -548,14 +570,24 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
     tmp = exp;
     while (tmp != s->nil) {
       if (sep) { fprintf(out, " "); }
-      surd_display(s, out, CAR(tmp));
-      tmp = CDR(tmp);
+      // might not be a list.
+      if (ISCONS(tmp)) {
+        surd_display(s, out, CAR(tmp));
+        tmp = CDR(tmp);
+      }
+      else {
+        surd_display(s, out, tmp);
+        break;
+      }
       sep = 1;
     }
     fprintf(out, ")");
   }
   else if (ISCLOSURE(exp)) {
     fprintf(out, "<#closure: %p>", exp);
+  }
+  else if (ISPRIM(exp)) {
+    fprintf(out, "<#primitive: %p>", exp);
   }
   else {
     fprintf(out, "umm...");
