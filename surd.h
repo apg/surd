@@ -40,6 +40,8 @@ struct symtab_entry {
 struct surd {
   cell_t *heap;
   int heap_size; // number of cells
+  cell_t *free_list;
+  int free_list_cells; // cells free
   symtab_entry_t *symbol_table;
   int symbol_table_size; // number of allocated symbols
   int symbol_table_index;

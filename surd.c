@@ -43,11 +43,34 @@ _symbol_position(surd_t *s, char *sym)
   int i;
   int slen = strlen(sym);
   for (i = 0; i < s->symbol_table_index; i++) {
-    if (strncmp(s->symbol_table[i].name, sym, slen) == 0) {
-      return i;
+    if (s->symbol_table[i].name) {
+      if (strncmp(s->symbol_table[i].name, sym, slen) == 0) {
+        return i;
+      }
+    }
+    else {
+      break;
     }
   }
   return -1;
+}
+
+static cell_t *
+_link_heap(surd_t *s)
+{
+  int i;
+  cell_t *heap = s->heap;
+
+  /* NOTE: we take nil from the original front of heap
+   * therefore, we have actual heap_size - 1 cells free,
+   * since we keep heap_size as the *actual* amount of 
+   * cells allocated via malloc, for heap resizing purposes
+   */
+  for (i = 0; i < s->heap_size - 1; i++) {
+    heap[i]._value.cons.cdr = heap + i + 1;
+  }
+  heap[s->heap_size - 2]._value.cons.cdr = s->nil;
+  return heap;
 }
 
 static cell_t *
@@ -130,19 +153,31 @@ void
 surd_init(surd_t *s, int hs, int ss)
 {
   int i;
-  s->heap = malloc(sizeof(s->heap) * hs);
+  s->heap = malloc(sizeof(*s->heap) * hs);
   s->heap_size = hs;
-  memset(s->heap, 0, sizeof(s->heap) * hs);
-  s->symbol_table = malloc(sizeof(s->symbol_table) * ss);
+  s->free_list_cells = hs - 1; // we take nil off the top
+
+  s->symbol_table = malloc(sizeof(*s->symbol_table) * ss);
+
   s->symbol_table_index = 0;
   s->symbol_table_size = ss;
-  s->nil = malloc(sizeof(s->nil));
+  s->nil = s->heap;
+
+  memset(s->heap, 0, sizeof(s->heap) * hs);
+  memset(s->symbol_table, 0, sizeof(*s->symbol_table) * ss);
+
+  memset(s->nil, 0, sizeof(s->nil));
   s->nil->flags = TNIL;
   s->nil->_value.num = 0;
 
+  // incr heap pointer since nil is right before it.
+  s->heap += 1;
   s->env = s->nil;
 
-  // intern some useful symbols.
+  // link the heap into a free_list so we don't have to linear search
+  s->free_list = _link_heap(s);
+
+  // intern some key symbols
   for (i = 0; i < _PRE_INTERNED_SYMBOLS_SIZE; i++) {
     surd_intern(s, _symbols_to_intern[i]);
   }
@@ -192,24 +227,32 @@ surd_destroy(surd_t *s)
 cell_t *
 surd_new_cell(surd_t *s)
 {
-  int i = 0;
   int tries = 1;
+  cell_t *next;
 
  search:
-  // TODO: don't linear search the heap (HORRIBLY SLOW)
-  for (i = 0; i < s->heap_size; i++) {
-    if (s->heap[i].flags == 0) {
-      return &(s->heap[i]);
-    }
+  if (s->free_list != s->nil && s->free_list_cells > 0) {
+    // printf("Free list is: %p, nil is: %p\n", s->free_list, s->nil);
+
+    // zero out to avoid leaking free list pointers
+    next = s->free_list;
+    s->free_list = s->free_list->_value.cons.cdr;
+
+    memset(next, 0, sizeof(*next));
+    // printf(" - returning %p\n", next);
+    // printf(" - free list is now %p\n", s->free_list);
+    s->free_list_cells--;
+    return next;
   }
   tries--;
 
   // try gc. if it frees up at least one cell, we're good.
+  fprintf(stderr, "gc...\n");
   if (surd_gc(s)) {
     goto search;
   }
 
-  return NULL;
+  return s->nil;
 }
 
 
@@ -236,7 +279,7 @@ surd_intern(surd_t *s, char *str)
 
   if (i < s->symbol_table_size) {
     c = surd_new_cell(s);
-    if (c) {
+    if (c != s->nil) {
       c->flags = TSYMBOL;
       c->_value.num = i;
       s->symbol_table[i].name = strndup(str, slen);
@@ -253,7 +296,7 @@ surd_intern(surd_t *s, char *str)
     s->symbol_table = realloc(s->symbol_table, newsize);
     if (s->symbol_table) {
       c = surd_new_cell(s);
-      if (c) {
+      if (c != s->nil) {
         c->flags = TSYMBOL;
         c->_value.num = i;
         s->symbol_table[i].name = strndup(str, slen);
@@ -279,18 +322,23 @@ surd_install_primitive(surd_t *s, char *name,
 {
   cell_t *sym = surd_intern(s, name);
   cell_t *prim = surd_new_cell(s);
-  prim->flags = TPRIMITIVE;
-  prim->_value.primitive.arity = arity;
-  prim->_value.primitive.func = func;
+  if (prim != s->nil) {
+    prim->flags = TPRIMITIVE;
+    prim->_value.primitive.arity = arity;
+    prim->_value.primitive.func = func;
 
-  s->env = _env_insert(s, s->env, sym, prim);
+    s->env = _env_insert(s, s->env, sym, prim);
+  }
+  else {
+    fprintf(stderr, "error: out of memory in surd_install_primitive\n");
+  }
 }
 
 cell_t *
 surd_cons(surd_t *s, cell_t *car, cell_t *cdr)
 {
   cell_t *new = surd_new_cell(s);
-  if (new) {
+  if (new != s->nil) {
     new->flags = TCONS;
     new->_value.cons.car = car;
     new->_value.cons.cdr = cdr;
@@ -323,7 +371,7 @@ _read_fixnum(surd_t *s, FILE *in, int sign)
   ungetc(c, in);
 
   fix = surd_new_cell(s);
-  if (fix) {
+  if (fix != s->nil) {
     surd_num_init(s, fix, i * sign);
     return fix;
   }
@@ -525,7 +573,6 @@ cell_t *
 surd_eval(surd_t *s, cell_t *exp, cell_t *env)
 {
   cell_t *car, *tmp;
-  int sym;
 
   //  surd_display(s, stdout, exp);
   if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {
