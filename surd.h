@@ -56,6 +56,7 @@ void surd_install_primitive(surd_t *, char *name,
                             cell_t *(*func)(surd_t *, cell_t *), int arity);
 cell_t *surd_new_cell(surd_t *); 
 cell_t *surd_cons(surd_t *, cell_t *car, cell_t *cdr);
+int surd_list_length(surd_t *s, cell_t *c);
 cell_t *surd_make_closure(surd_t *, cell_t *code, cell_t *env);
 cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);

@@ -120,6 +120,33 @@ _env_insert(surd_t *s, cell_t *env, cell_t *sym, cell_t *value)
 }
 
 static cell_t *
+_env_extend(surd_t *s, cell_t *env, cell_t *params, cell_t *args)
+{
+  cell_t *sym, *val;
+  for (;;) {
+    if (params == s->nil && args == s->nil) {
+      return env;
+    }
+    else if (params == s->nil && args != s->nil) {
+      fprintf(stderr, "error: too many arguments\n");
+      exit(1);
+    }
+    else if (args == s->nil && params != s->nil) {
+      fprintf(stderr, "arity error: too few arguments\n");
+      exit(1);
+    }
+    else {
+      sym = _car(s, params);
+      val = _car(s, args);
+      env = _env_insert(s, env, sym, val);
+      params = _cdr(s, params);
+      args = _cdr(s, args);
+    }
+  }
+  return env;
+}
+
+static cell_t *
 _eval_list(surd_t *s, cell_t *list, cell_t *env)
 {
   cell_t *first, *next, *next_next, *tmp, *evaled;
@@ -366,6 +393,26 @@ surd_cons(surd_t *s, cell_t *car, cell_t *cdr)
     fprintf(stderr, "error: out of memory in surd_cons\n");
     exit(1);
   }
+}
+
+int
+surd_list_length(surd_t *s, cell_t *c)
+{
+  int len = -1;
+  if (ISCONS(c)) {
+    len = 0;
+    while (c != s->nil) {
+      if (ISCONS(c)) {
+        len++;
+        c = c->_value.cons.cdr;
+      }
+      else {
+        len = -1;
+        break;
+      }
+    }
+  }
+  return len;
 }
 
 cell_t *
@@ -630,7 +677,12 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
       return _eval_if(s, exp, env);
     }
     else if (car == surd_intern(s, "lambda")) {
-      return surd_make_closure(s, exp, env);
+      if (surd_list_length(s, exp) > 2) {
+        return surd_make_closure(s, exp, env);
+      }
+      else {
+        fprintf(stderr, "error: lambda requires at least 2 arguments\n");
+      }
     }
     else {
       // apply
@@ -651,18 +703,30 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
 cell_t *
 surd_apply(surd_t *s, cell_t *closure, cell_t *args)
 {
+  cell_t *nenv, *code;
+  int carity;
   if (closure == NULL && closure == s->nil) {
     fprintf(stderr, "error: attempt to apply a null value\n");
     exit(1);
   }
   if (ISPRIM(closure)) {
-    // need arity checking here, but that also means we need LENGTH
-    return (closure->_value.primitive.func)(s, args);
+    carity = surd_list_length(s, args);
+    if (carity == closure->_value.primitive.arity) {
+      return (closure->_value.primitive.func)(s, args);
+    }
+    else {
+      fprintf(stderr, "arity error: arity mismatch, "
+              "expected %d args, got %d\n", closure->_value.primitive.arity,
+              carity);
+      exit(1);
+    }
   }
   else if (ISCLOSURE(closure)) {
-    fprintf(stderr, "APPLY A CLOSURE\n");
+    code = closure->_value.cons.car;
+    nenv = closure->_value.cons.cdr;
+    nenv = _env_extend(s, nenv, _car(s, _cdr(s, code)), args);
+    return surd_eval(s, _car(s, _cdr(s, _cdr(s, code))), nenv);
   }
-
   return s->nil;
 }
 
@@ -683,4 +747,3 @@ surd_gc(surd_t *s)
 {
   return 0;
 }
-

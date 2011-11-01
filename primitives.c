@@ -3,30 +3,11 @@
 #include "surd.h"
 #include "primitives.h"
 
-static int
-_list_length(surd_t *s, cell_t *c)
-{
-  int len = -1;
-  if (ISCONS(c)) {
-    len = 0;
-    while (c != s->nil) {
-      if (ISCONS(c)) {
-        len++;
-        c = c->_value.cons.cdr;
-      }
-      else {
-        len = -1;
-        break;
-      }
-    }
-  }
-  return len;
-}
 
 cell_t *
 surd_p_cons(surd_t *s, cell_t *args)
 {
-  int l = _list_length(s, args);
+  int l = surd_list_length(s, args);
   cell_t *c = s->nil;
 
   if (l == 2) {
@@ -78,7 +59,7 @@ cell_t *
 surd_p_consp(surd_t *s, cell_t *args)
 {
   cell_t *c;
-  if (_list_length(s, args) == 1) {
+  if (surd_list_length(s, args) == 1) {
     c = CAR(args);
     if (ISCONS(c)) {
       return c;
@@ -102,7 +83,7 @@ cell_t *
 surd_p_fixnump(surd_t *s, cell_t *args)
 {
   cell_t *c;
-  if (_list_length(s, args) == 1) {
+  if (surd_list_length(s, args) == 1) {
     c = CAR(args);
     if (ISFIXNUM(c)) {
       return c;
@@ -120,7 +101,7 @@ cell_t *
 surd_p_symbolp(surd_t *s, cell_t *args)
 {
   cell_t *c;
-  if (_list_length(s, args) == 1) {
+  if (surd_list_length(s, args) == 1) {
     c = CAR(args);
     if (ISSYM(c)) {
       return c;
@@ -138,7 +119,7 @@ cell_t *
 surd_p_procedurep(surd_t *s, cell_t *args)
 {
   cell_t *c;
-  if (_list_length(s, args) == 1) {
+  if (surd_list_length(s, args) == 1) {
     c = CAR(args);
     if (ISPRIM(c)) {
       return c;
@@ -156,7 +137,7 @@ cell_t *
 surd_p_closurep(surd_t *s, cell_t *args)
 {
   cell_t *c;
-  if (_list_length(s, args) == 1) {
+  if (surd_list_length(s, args) == 1) {
     c = CAR(args);
     if (ISCLOSURE(c)) {
       return c;
