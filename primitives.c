@@ -121,13 +121,13 @@ surd_p_procedurep(surd_t *s, cell_t *args)
   cell_t *c;
   if (surd_list_length(s, args) == 1) {
     c = CAR(args);
-    if (ISPRIM(c)) {
+    if (ISPRIM(c) || ISCLOSURE(c)) {
       return c;
     }
     return s->nil;
   }
   else {
-    fprintf(stderr, "arity error: primitive? takes 1 argument\n");
+    fprintf(stderr, "arity error: procedure? takes 1 argument\n");
     exit(1);
   }
   return s->nil;

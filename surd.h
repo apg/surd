@@ -1,6 +1,8 @@
 #ifndef _SURD_H
 #define _SURD_H
 
+// Rob Pike says I shouldn't do this... 
+// http://doc.cat-v.org/bell_labs/pikestyle
 #include <stdio.h>
 
 typedef struct cell cell_t;
@@ -50,13 +52,15 @@ struct surd {
 };
 
 void surd_init(surd_t *, int hs, int ss);
-void surd_free(surd_t *);
+void surd_destroy(surd_t *);
 
 void surd_install_primitive(surd_t *, char *name,
                             cell_t *(*func)(surd_t *, cell_t *), int arity);
 cell_t *surd_new_cell(surd_t *); 
 cell_t *surd_cons(surd_t *, cell_t *car, cell_t *cdr);
 int surd_list_length(surd_t *s, cell_t *c);
+cell_t *surd_car(surd_t *, cell_t *cns);
+cell_t *surd_cdr(surd_t *, cell_t *cns);
 cell_t *surd_make_closure(surd_t *, cell_t *code, cell_t *env);
 cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);

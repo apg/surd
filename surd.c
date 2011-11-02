@@ -37,8 +37,8 @@ _is_delim(int c)
   return (c == '(' || c == ')' || c == ';' || isspace(c));
 }
 
-static inline cell_t *
-_car(surd_t *s, cell_t *c)
+inline cell_t *
+surd_car(surd_t *s, cell_t *c)
 {
   if (ISCONS(c)) {
     return CAR(c);
@@ -46,8 +46,8 @@ _car(surd_t *s, cell_t *c)
   return s->nil;
 }
 
-static inline cell_t *
-_cdr(surd_t *s, cell_t *c)
+inline cell_t *
+surd_cdr(surd_t *s, cell_t *c)
 {
   if (ISCONS(c)) {
     return CDR(c);
@@ -56,7 +56,7 @@ _cdr(surd_t *s, cell_t *c)
 }
 
 static int
-_symbol_position(surd_t *s, char *sym) 
+_symbol_position(surd_t *s, char *sym)
 {
   int i;
   int slen = strlen(sym);
@@ -136,11 +136,11 @@ _env_extend(surd_t *s, cell_t *env, cell_t *params, cell_t *args)
       exit(1);
     }
     else {
-      sym = _car(s, params);
-      val = _car(s, args);
+      sym = surd_car(s, params);
+      val = surd_car(s, args);
       env = _env_insert(s, env, sym, val);
-      params = _cdr(s, params);
-      args = _cdr(s, args);
+      params = surd_cdr(s, params);
+      args = surd_cdr(s, args);
     }
   }
   return env;
@@ -174,9 +174,9 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
 static cell_t *
 _eval_if(surd_t *s, cell_t *exp, cell_t *env)
 {
-  cell_t *condition = _car(s, _cdr(s, exp));
-  cell_t *consequent = _car(s, _cdr(s, _cdr(s, exp)));
-  cell_t *alternate = _car(s, _cdr(s, _cdr(s, _cdr(s, exp))));
+  cell_t *condition = surd_car(s, surd_cdr(s, exp));
+  cell_t *consequent = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
+  cell_t *alternate = surd_car(s, surd_cdr(s, surd_cdr(s, surd_cdr(s, exp))));
   cell_t *val = surd_eval(s, condition, env);
   if (val == s->nil) {
     if (alternate == s->nil) {
@@ -249,9 +249,10 @@ surd_destroy(surd_t *s)
 {
   int i;
 
-  // kills the heap, kills the symbol table.
-  if (s->heap) {
-    free(s->heap);
+  // kills the heap
+  // NIL is the the pointer to the originally allocated space.
+  if (s->nil) {
+    free(s->nil);
   }
   if (s->symbol_table) {
     // free all the symbols
@@ -263,7 +264,6 @@ surd_destroy(surd_t *s)
     s->symbol_table_index = 0;
   }
   s->env = NULL;
-  free(s->nil);
   s->nil = NULL;
 }
 
@@ -456,7 +456,7 @@ _eat_comment(FILE *in)
   int c;
   do {
     c = fgetc(in);
-  } while(c != '\r' || c != '\n' || c != EOF);
+  } while(c != '\r' && c != '\n' && c != EOF);
 }
 
 static cell_t *
@@ -711,7 +711,8 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
   }
   if (ISPRIM(closure)) {
     carity = surd_list_length(s, args);
-    if (carity == closure->_value.primitive.arity) {
+    if (carity == closure->_value.primitive.arity ||
+        closure->_value.primitive.arity == -1) {
       return (closure->_value.primitive.func)(s, args);
     }
     else {
@@ -724,8 +725,8 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
   else if (ISCLOSURE(closure)) {
     code = closure->_value.cons.car;
     nenv = closure->_value.cons.cdr;
-    nenv = _env_extend(s, nenv, _car(s, _cdr(s, code)), args);
-    return surd_eval(s, _car(s, _cdr(s, _cdr(s, code))), nenv);
+    nenv = _env_extend(s, nenv, surd_car(s, surd_cdr(s, code)), args);
+    return surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv);
   }
   return s->nil;
 }
@@ -733,13 +734,13 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
 static void
 _mark(surd_t *s)
 {
-  
+  return;
 }
 
-static void
+static int
 _sweep(surd_t *s)
 {
-
+  return 0;
 }
 
 int
