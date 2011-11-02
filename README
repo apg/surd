@@ -1,0 +1,36 @@
+Surd - An absurd Lisp interpreter
+---------------------------------
+
+This really doesn't do much but serve as an example of constructing a
+very base Lisp interpreter in C. It may, in the future serve as the 
+basis for a larger project, but currently is absurd.
+
+It supports abstraction, lists, symbols and fixnums. It does not support
+definitions, fancy forms such as `let` and `letrec` or macros. There's
+no first class `eval` or even a way to report the current lexical 
+environment. But, everything *is* built out of conses and cells, including
+closures. Closures are tagged as such, but stored using the same cell 
+fields that a cons uses.
+
+In other words:
+
+    c = cell()
+    c.type = CLOSURE
+    c.car = CODE
+    c.cdr = ENV
+
+Where as a cons:
+   
+    c = cell()
+    c.type = CONS
+    c.car = CAR
+    c.cdr = CDR
+
+
+
+To do
+=====
+
+Well, make it more generally useful I guess, as it's currently not, which
+is fine. That wasn't at all my goal.
+
