@@ -209,7 +209,8 @@ surd_init(surd_t *s, int hs, int ss)
   int i;
   s->heap = malloc(sizeof(*s->heap) * hs);
   s->heap_size = hs;
-  s->free_list_cells = hs - 1; // we take nil off the top
+  s->heap_ceil = s->heap + (hs + 1);
+  s->free_list_cells = 0;
 
   s->symbol_table = malloc(sizeof(*s->symbol_table) * ss);
 
@@ -226,11 +227,14 @@ surd_init(surd_t *s, int hs, int ss)
 
   // incr heap pointer since nil is right before it.
   s->heap += 1;
+  s->bump = s->heap;
+
   s->env = s->nil;
   s->top_env = s->nil;
 
   // link the heap into a free_list so we don't have to linear search
-  s->free_list = NULL;
+  s->free_list = s->nil;
+  s->first_alloc = NULL;
 
   // intern some key symbols
   for (i = 0; i < _PRE_INTERNED_SYMBOLS_SIZE; i++) {
@@ -278,39 +282,6 @@ surd_destroy(surd_t *s)
   s->env = NULL;
   s->nil = NULL;
 }
-
-
-cell_t *
-surd_new_cell(surd_t *s)
-{
-  int tries = 1;
-  cell_t *next;
-
- search:
-  if (s->free_list != s->nil && s->free_list_cells > 0) {
-    // printf("Free list is: %p, nil is: %p\n", s->free_list, s->nil);
-
-    // zero out to avoid leaking free list pointers
-    next = s->free_list;
-    s->free_list = s->free_list->_value.cons.cdr;
-
-    memset(next, 0, sizeof(*next));
-    // printf(" - returning %p\n", next);
-    // printf(" - free list is now %p\n", s->free_list);
-    s->free_list_cells--;
-    return next;
-  }
-  tries--;
-
-  // try gc. if it frees up at least one cell, we're good.
-  fprintf(stderr, "gc...\n");
-  if (surd_gc(s)) {
-    goto search;
-  }
-
-  return s->nil;
-}
-
 
 void
 surd_num_init(surd_t *s, cell_t *c, int value)
@@ -749,95 +720,4 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
     return surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 0);
   }
   return s->nil;
-}
-
-/**
-   One pass procecedures
- */
-
-static int
-marked(cell_t *c)
-{
-  return c->flags & (1 << MARK_BIT);
-}
-
-static int
-type(cell_t *c)
-{
-  return c->flags & ((1 << TYPE_BITS+1) - 1)
-}
-
-static cell_t *
-address(cell_t *c)
-{
-  if (type(c) & TATOMIC) {
-    return c;
-  }
-  return NULL;
-}
-
-static void
-possibly_mark_object(cell_t *c)
-{
-  switch(type(c)) {
-  case TFIXNUM:
-    break;
-  case TSYMBOL:
-    break;
-  case TCONS:
-    break;
-  case TCLOSURE:
-    break;
-  case TPRIMITIVE:
-    break;
-  }
-}
-
-static void
-mark(cell_t *c)
-{
-  cell->flags |= cell->flags | 1<<MARK_BIT;
-}
-
-static void
-unmark(cell_t *c)
-{
-  if (marked(c)) {
-    cell->flags ^= 1<<MARK_BIT;
-  }
-}
-
-static void
-free_cell(cell_t *c)
-{
-  /* TODO: link this onto the free list 
-   */
-
-}
-
-
-/* TODO: Make this incremental after we know it works! */
-int
-surd_gc(surd_t *s)
-{
-  cell_t *tmp;
-  int count = 0;
-  s->last = s->current;
-  s->SCAV = hist(s->last);
-  while (s->SCAV != first) {
-    if (marked(s->SCAV)) {
-      possibly_mark_object(s->SCAV);
-      unmark(SCAV);
-      s->last = s->SCAV;
-      s->SCAV = hist(s->last);
-    }
-    else {
-      tmp = s->SCAV;
-      s->SCAV = hist(s->SCAV);
-      set_history(s->last, s->SCAV);
-      free_cell(tmp);
-      count++;
-    }
-  }
-  return count;
 }

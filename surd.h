@@ -47,6 +47,7 @@ struct symtab_entry {
 
 struct surd {
   cell_t *heap;
+  cell_t *heap_ceil;
   int heap_size; // number of cells
   /* Pointer to the first cell in the heap that hasn't been linked
    */
@@ -60,19 +61,24 @@ struct surd {
   /* Symbol table: symbols use cells as well as external memory
      created on the fly via malloc 
   */
-  symtab_entry_t *symbol_table; int
-  symbol_table_size; // number of allocated symbols int
-  symbol_table_index; 
+  symtab_entry_t *symbol_table;
+
+  /* size of symbol table */
+  int symbol_table_size; 
+
+  /* index of the next free symbol */
+  int symbol_table_index;
+
   /* initial eval environment */
   cell_t *env; 
+
   /* Top level environment */
   cell_t *top_env; 
   cell_t *nil; 
 
   /* GC context */
-  cell_t *last;
-  cell_t *first;
-  cell_t *current;
+  cell_t *first_alloc;
+  cell_t *last_alloc;
   cell_t *SCAV;
 };
 
