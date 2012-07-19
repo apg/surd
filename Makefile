@@ -8,4 +8,4 @@ surd: surd.o main.o primitives.o
 	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
-	rm surd *.o
+	rm -f surd *.o

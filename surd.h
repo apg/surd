@@ -48,6 +48,7 @@ struct surd {
   int symbol_table_size; // number of allocated symbols
   int symbol_table_index;
   cell_t *env;
+  cell_t *top_env;
   cell_t *nil;
 };
 
@@ -62,7 +63,7 @@ int surd_list_length(surd_t *s, cell_t *c);
 cell_t *surd_car(surd_t *, cell_t *cns);
 cell_t *surd_cdr(surd_t *, cell_t *cns);
 cell_t *surd_make_closure(surd_t *, cell_t *code, cell_t *env);
-cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env);
+cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env, int top);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
 int surd_gc(surd_t *);
