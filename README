@@ -26,7 +26,18 @@ Where as a cons:
     c.car = CAR
     c.cdr = CDR
 
+Using this, you can evaluate expressions:
 
+$ ./surd 
+
+(((lambda (y) (lambda (x) (+ x y))) 1) 2)
+- Read: (((lambda (y) (lambda (x) (+ x y))) 1) 2)
+
+- Evaluated: 3
+
+As such, it could probably be used, with a few modifications to bootstrap
+another language, but it'd truely be painful to do so. Maybe I'll try
+it!
 
 To do
 =====
