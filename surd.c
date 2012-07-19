@@ -73,23 +73,6 @@ _symbol_position(surd_t *s, char *sym)
   return -1;
 }
 
-static cell_t *
-_link_heap(surd_t *s)
-{
-  int i;
-  cell_t *heap = s->heap;
-
-  /* NOTE: we take nil from the original front of heap
-   * therefore, we have actual heap_size - 1 cells free,
-   * since we keep heap_size as the *actual* amount of 
-   * cells allocated via malloc, for heap resizing purposes
-   */
-  for (i = 0; i < s->heap_size - 1; i++) {
-    heap[i]._value.cons.cdr = heap + i + 1;
-  }
-  heap[s->heap_size - 2]._value.cons.cdr = s->nil;
-  return heap;
-}
 
 static cell_t *
 _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
@@ -247,7 +230,7 @@ surd_init(surd_t *s, int hs, int ss)
   s->top_env = s->nil;
 
   // link the heap into a free_list so we don't have to linear search
-  s->free_list = _link_heap(s);
+  s->free_list = NULL;
 
   // intern some key symbols
   for (i = 0; i < _PRE_INTERNED_SYMBOLS_SIZE; i++) {
@@ -767,17 +750,50 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
   return s->nil;
 }
 
-static void
-_mark(surd_t *s)
+/**
+   One pass procecedures
+ */
+
+static int
+marked(cell_t *c)
 {
-  return;
+  return c->flags & (1 << MARK_BIT);
 }
 
 static int
-_sweep(surd_t *s)
+type(cell_t *c)
 {
-  return 0;
+  return c->flags & ((1 << TYPE_BITS+1) - 1)
 }
+
+static cell_t *
+address(cell_t *c)
+{
+
+}
+
+static void
+possibly_mark(cell_t *c)
+{
+  if (!(type(c) & TATOMIC)) {
+    mark(c);
+  }
+}
+
+static void
+mark(cell_t *c)
+{
+  cell->flags |= cell->flags | 1<<MARK_BIT;
+}
+
+static void
+unmark(cell_t *c)
+{
+  if (marked(c)) {
+    cell->flags ^= 1<<MARK_BIT;
+  }
+}
+
 
 int
 surd_gc(surd_t *s)

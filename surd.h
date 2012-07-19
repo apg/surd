@@ -11,16 +11,22 @@ typedef struct surd surd_t;
 typedef struct symtab_entry symtab_entry_t;
 
 typedef enum {
-  TNIL=1,
-  TFIXNUM=2,
-  TSYMBOL=4,
-  TCONS=8,
-  TCLOSURE=16, // env goes in cdr, code in car
-  TPRIMITIVE=32
+  TNIL=0x1,
+  TFIXNUM=0x2,
+  TSYMBOL=0x4,
+  TCONS=0x8,
+  TCLOSURE=0x10, // env goes in cdr, code in car
+  TPRIMITIVE=0x20
 } type_t;
 
+#define TYPE_BITS 16
+
+#define TATOMIC TFIXNUM | TSYMBOL | TNIL
+#define MARK_BIT 31
+
 struct cell {
-  int flags;
+  unsinged int flags;
+  cell_t *hist;
   union {
     int num;
     struct cons {
