@@ -274,6 +274,7 @@ surd_destroy(surd_t *s)
     s->symbol_table_size = 0;
     s->symbol_table_index = 0;
   }
+  /* need to reclaim these--this is a memleak */
   s->env = NULL;
   s->nil = NULL;
 }
@@ -769,14 +770,26 @@ type(cell_t *c)
 static cell_t *
 address(cell_t *c)
 {
-
+  if (type(c) & TATOMIC) {
+    return c;
+  }
+  return NULL;
 }
 
 static void
-possibly_mark(cell_t *c)
+possibly_mark_object(cell_t *c)
 {
-  if (!(type(c) & TATOMIC)) {
-    mark(c);
+  switch(type(c)) {
+  case TFIXNUM:
+    break;
+  case TSYMBOL:
+    break;
+  case TCONS:
+    break;
+  case TCLOSURE:
+    break;
+  case TPRIMITIVE:
+    break;
   }
 }
 
@@ -794,9 +807,37 @@ unmark(cell_t *c)
   }
 }
 
+static void
+free_cell(cell_t *c)
+{
+  /* TODO: link this onto the free list 
+   */
 
+}
+
+
+/* TODO: Make this incremental after we know it works! */
 int
 surd_gc(surd_t *s)
 {
-  return 0;
+  cell_t *tmp;
+  int count = 0;
+  s->last = s->current;
+  s->SCAV = hist(s->last);
+  while (s->SCAV != first) {
+    if (marked(s->SCAV)) {
+      possibly_mark_object(s->SCAV);
+      unmark(SCAV);
+      s->last = s->SCAV;
+      s->SCAV = hist(s->last);
+    }
+    else {
+      tmp = s->SCAV;
+      s->SCAV = hist(s->SCAV);
+      set_history(s->last, s->SCAV);
+      free_cell(tmp);
+      count++;
+    }
+  }
+  return count;
 }

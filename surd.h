@@ -21,11 +21,11 @@ typedef enum {
 
 #define TYPE_BITS 16
 
-#define TATOMIC TFIXNUM | TSYMBOL | TNIL
+#define TATOMIC (TFIXNUM | TSYMBOL | TNIL)
 #define MARK_BIT 31
 
 struct cell {
-  unsinged int flags;
+  unsigned int flags;
   cell_t *hist;
   union {
     int num;
@@ -48,14 +48,32 @@ struct symtab_entry {
 struct surd {
   cell_t *heap;
   int heap_size; // number of cells
+  /* Pointer to the first cell in the heap that hasn't been linked
+   */
+  cell_t *bump; 
+  /* Pointer to the free list, which keeps track of reclaimed/linked cells
+   */
   cell_t *free_list;
-  int free_list_cells; // cells free
-  symtab_entry_t *symbol_table;
-  int symbol_table_size; // number of allocated symbols
-  int symbol_table_index;
-  cell_t *env;
-  cell_t *top_env;
-  cell_t *nil;
+  /* Number of free list cells we have left
+   */
+  int free_list_cells; 
+  /* Symbol table: symbols use cells as well as external memory
+     created on the fly via malloc 
+  */
+  symtab_entry_t *symbol_table; int
+  symbol_table_size; // number of allocated symbols int
+  symbol_table_index; 
+  /* initial eval environment */
+  cell_t *env; 
+  /* Top level environment */
+  cell_t *top_env; 
+  cell_t *nil; 
+
+  /* GC context */
+  cell_t *last;
+  cell_t *first;
+  cell_t *current;
+  cell_t *SCAV;
 };
 
 void surd_init(surd_t *, int hs, int ss);
