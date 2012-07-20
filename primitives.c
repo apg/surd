@@ -1,7 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "surd.h"
 #include "primitives.h"
+
+#define MIN(x, y) ((x < y) ? x: y)
 
 
 cell_t *
@@ -276,3 +279,171 @@ cell_t *surd_p_display(surd_t *s, cell_t *args)
   return s->nil;
 }
 
+cell_t *
+surd_p_gt(surd_t *s, cell_t *args)
+{
+  cell_t *l, *r;
+  char *ls, *rs;
+  if (surd_list_length(s, args) == 2) {
+    l = CAR(args);
+    r = CAR(CDR(args));
+
+    if (TYPE(l) == TYPE(r)) {
+      switch (TYPE(l)) {
+      case TFIXNUM:
+        if (l->_value.num > r->_value.num) {
+          return surd_intern(s, "true");
+        }
+        break;
+      case TSYMBOL:
+        ls = s->symbol_table[l->_value.num].name;
+        rs = s->symbol_table[r->_value.num].name;
+        if (strncmp(ls, rs, MIN(strlen(ls), strlen(rs))) > 0) {
+          return surd_intern(s, "true");
+        }
+      }
+    }
+    return s->nil;
+  }
+  else {
+    fprintf(stderr, "arity error: > takes 2 argument\n");
+    exit(1);
+  }
+  return s->nil;
+}
+
+
+cell_t *
+surd_p_lt(surd_t *s, cell_t *args)
+{
+  cell_t *l, *r;
+  char *ls, *rs;
+  if (surd_list_length(s, args) == 2) {
+    l = CAR(args);
+    r = CAR(CDR(args));
+
+    if (TYPE(l) == TYPE(r)) {
+      switch (TYPE(l)) {
+      case TFIXNUM:
+        if (l->_value.num < r->_value.num) {
+          return surd_intern(s, "true");
+        }
+        break;
+      case TSYMBOL:
+        ls = s->symbol_table[l->_value.num].name;
+        rs = s->symbol_table[r->_value.num].name;
+        if (strncmp(ls, rs, MIN(strlen(ls), strlen(rs))) < 0) {
+          return surd_intern(s, "true");
+        }
+      }
+    }
+    return s->nil;
+  }
+  else {
+    fprintf(stderr, "arity error: < takes 2 argument\n");
+    exit(1);
+  }
+  return s->nil;
+}
+
+
+cell_t *
+surd_p_ge(surd_t *s, cell_t *args)
+{
+  cell_t *l, *r;
+  char *ls, *rs;
+  if (surd_list_length(s, args) == 2) {
+    l = CAR(args);
+    r = CAR(CDR(args));
+
+    if (TYPE(l) == TYPE(r)) {
+      switch (TYPE(l)) {
+      case TFIXNUM:
+        if (l->_value.num >= r->_value.num) {
+          return surd_intern(s, "true");
+        }
+        break;
+      case TSYMBOL:
+        ls = s->symbol_table[l->_value.num].name;
+        rs = s->symbol_table[r->_value.num].name;
+        if (strncmp(ls, rs, MIN(strlen(ls), strlen(rs))) >= 0) {
+          return surd_intern(s, "true");
+        }
+      }
+    }
+    return s->nil;
+  }
+  else {
+    fprintf(stderr, "arity error: >= takes 2 argument\n");
+    exit(1);
+  }
+  return s->nil;
+}
+
+
+cell_t *
+surd_p_le(surd_t *s, cell_t *args)
+{
+  cell_t *l, *r;
+  char *ls, *rs;
+  if (surd_list_length(s, args) == 2) {
+    l = CAR(args);
+    r = CAR(CDR(args));
+
+    if (TYPE(l) == TYPE(r)) {
+      switch (TYPE(l)) {
+      case TFIXNUM:
+        if (l->_value.num <= r->_value.num) {
+          return surd_intern(s, "true");
+        }
+        break;
+      case TSYMBOL:
+        ls = s->symbol_table[l->_value.num].name;
+        rs = s->symbol_table[r->_value.num].name;
+        if (strncmp(ls, rs, MIN(strlen(ls), strlen(rs))) <= 0) {
+          return surd_intern(s, "true");
+        }
+      }
+    }
+    return s->nil;
+  }
+  else {
+    fprintf(stderr, "arity error: <= takes 2 argument\n");
+    exit(1);
+  }
+  return s->nil;
+}
+
+
+cell_t *
+surd_p_eq(surd_t *s, cell_t *args)
+{
+  cell_t *l, *r;
+  char *ls, *rs;
+  if (surd_list_length(s, args) == 2) {
+    l = CAR(args);
+    r = CAR(CDR(args));
+
+    if (TYPE(l) == TYPE(r)) {
+      switch (TYPE(l)) {
+      case TFIXNUM:
+        if (l->_value.num == r->_value.num) {
+          return surd_intern(s, "true");
+        }
+        break;
+      case TSYMBOL:
+        ls = s->symbol_table[l->_value.num].name;
+        rs = s->symbol_table[r->_value.num].name;
+        if (strncmp(ls, rs, MIN(strlen(ls), strlen(rs))) == 0) {
+          return surd_intern(s, "true");
+        }
+      }
+    }
+    return s->nil;
+  }
+  else {
+    fprintf(stderr, "arity error: >= takes 2 argument\n");
+    exit(1);
+  }
+  return s->nil;
+}

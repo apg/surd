@@ -16,13 +16,22 @@ typedef enum {
   TSYMBOL=0x4,
   TCONS=0x8,
   TCLOSURE=0x10, // env goes in cdr, code in car
-  TPRIMITIVE=0x20
+  TPRIMITIVE=0x20,
+  TBOX=0x40
 } type_t;
 
 #define TYPE_BITS 16
 
 #define TATOMIC (TFIXNUM | TSYMBOL | TNIL)
 #define MARK_BIT 31
+
+#define MARKED(c) (c->flags & (1 << MARK_BIT))
+#define MARK(c) do { c->flags |= 1<<MARK_BIT; } while (0)
+#define UNMARK(c) do { if (MARKED(c)) { \
+    c->flags ^= 1<<MARK_BIT; \
+  } \
+} while (0)
+#define TYPE(c) (c->flags & ((1 << (TYPE_BITS+1)) - 1))
 
 struct cell {
   unsigned int flags;
@@ -93,6 +102,7 @@ int surd_list_length(surd_t *s, cell_t *c);
 cell_t *surd_car(surd_t *, cell_t *cns);
 cell_t *surd_cdr(surd_t *, cell_t *cns);
 cell_t *surd_make_closure(surd_t *, cell_t *code, cell_t *env);
+cell_t *surd_make_box(surd_t *, cell_t *value);
 cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env, int top);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
@@ -108,6 +118,7 @@ void surd_write(surd_t *, FILE *out, cell_t *exp);
 #define ISFIXNUM(c) (c != NULL && c->flags & TFIXNUM)
 #define ISSYM(c) (c != NULL && c->flags & TSYMBOL)
 #define ISCONS(c) (c != NULL && c->flags & TCONS)
+#define ISBOX(c) (c != NULL && c->flags & TBOX)
 #define ISCLOSURE(c) (c != NULL && c->flags & TCLOSURE)
 #define ISPRIM(c) (c != NULL && c->flags & TPRIMITIVE)
 

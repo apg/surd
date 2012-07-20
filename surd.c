@@ -82,7 +82,6 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
   int i;
 
   for (i = 0; i < 2; i++) {
-    fprintf(stderr, "debug: in here\n");
     tmp = envs[i];
     while (tmp != s->nil && tmp != NULL) {
       if (ISCONS(tmp)) {
@@ -94,7 +93,6 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
       }
       tmp = CDR(tmp);
     }
-    fprintf(stderr, "debug: didn't find it in that pass\n");
   }
 
   fprintf(stderr, "error: symbol %s not found\n", s->symbol_table[sym->_value.num].name);
@@ -257,6 +255,12 @@ surd_init(surd_t *s, int hs, int ss)
   surd_install_primitive(s, "*", surd_p_mult, -1);
   surd_install_primitive(s, "/", surd_p_div, -1);
   surd_install_primitive(s, "%", surd_p_mod, -1);
+
+  surd_install_primitive(s, ">", surd_p_gt, 2);
+  surd_install_primitive(s, "<", surd_p_lt, 2);
+  surd_install_primitive(s, "=", surd_p_eq, 2);
+  surd_install_primitive(s, ">=", surd_p_ge, 2);
+  surd_install_primitive(s, "<=", surd_p_le, 2);
 }
 
 void
@@ -406,6 +410,15 @@ surd_make_closure(surd_t *s, cell_t *code, cell_t *env)
   return cls;
 }
 
+cell_t *
+surd_make_box(surd_t *s, cell_t *value)
+{
+  cell_t *box;
+  box = surd_cons(s, value, s->nil);
+  box->flags = TBOX;
+  return box;
+}
+
 static cell_t *_read(surd_t *s, FILE *in);
 
 static cell_t *
@@ -424,6 +437,7 @@ _read_fixnum(surd_t *s, FILE *in, int sign)
   fix = surd_new_cell(s);
   if (fix != s->nil) {
     surd_num_init(s, fix, i * sign);
+    MARK(fix);
     return fix;
   }
 
@@ -456,7 +470,7 @@ _read_symbol(surd_t *s, FILE *in)
     buffer[i] = 0;
   }
   else {
-    fprintf(stderr, "error: not a symbol: invalid first char '%c'\n", (char)c);
+    fprintf(stderr, "error: not a symbol: invalid first char(%d) '%c' \n", c, (char)c);
     exit(1);
   }
 
@@ -477,6 +491,8 @@ _read_symbol(surd_t *s, FILE *in)
   }
  done:
   sym = surd_intern(s, buffer);
+  MARK(sym);
+  
   return sym;
 }
 
@@ -493,6 +509,7 @@ _read_list(surd_t *s, FILE *in)
   }
 
   first = surd_cons(s, tmp, s->nil);
+  MARK(first);
   next = first;
 
   for (;;) {
@@ -564,6 +581,9 @@ _read(surd_t *s, FILE *in)
         return _read_fixnum(s, in, c == '-' ? -1: 1);
       }
     default:
+      if (c == EOF) {
+        return NULL;
+      }
       ungetc(c, in);
       return _read_symbol(s, in);
     }

@@ -1,0 +1,6 @@
+(def fact (lambda (x)
+   (if (> x 1)
+      (* (fact (- x 1)) x)
+      1)))
+
+(fact 5)

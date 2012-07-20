@@ -27,6 +27,12 @@ cell_t *surd_p_mult(surd_t *s, cell_t *args);
 cell_t *surd_p_div(surd_t *s, cell_t *args);
 cell_t *surd_p_mod(surd_t *s, cell_t *args);
 
+cell_t *surd_p_gt(surd_t *s, cell_t *args);
+cell_t *surd_p_lt(surd_t *s, cell_t *args);
+cell_t *surd_p_ge(surd_t *s, cell_t *args);
+cell_t *surd_p_le(surd_t *s, cell_t *args);
+cell_t *surd_p_eq(surd_t *s, cell_t *args);
+
 // display
 cell_t *surd_p_display(surd_t *s, cell_t *args);
 #endif

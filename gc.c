@@ -7,43 +7,17 @@
    One pass procecedures
  */
 
-static int
-marked(cell_t *c)
-{
-  return c->flags & (1 << MARK_BIT);
-}
-
-static void
-mark(cell_t *c)
-{
-  c->flags |= 1<<MARK_BIT;
-}
-
-static void
-unmark(cell_t *c)
-{
-  if (marked(c)) {
-    c->flags ^= 1<<MARK_BIT;
-  }
-}
-
-static int
-type(cell_t *c)
-{
-  return c->flags & ((1 << (TYPE_BITS+1)) - 1);
-}
-
 static void
 possibly_mark_object(cell_t *c)
 {
-  switch(type(c)) {
+  switch(TYPE(c)) {
   case TCONS:
-    mark(c->_value.cons.car); 
-    mark(c->_value.cons.cdr); 
-    break;
   case TCLOSURE:
-    mark(c->_value.cons.car); 
-    mark(c->_value.cons.cdr); 
+    MARK(c->_value.cons.car); 
+    MARK(c->_value.cons.cdr); 
+    break;
+  case TBOX:
+    MARK(c->_value.cons.car); 
     break;
   }
 }
@@ -61,12 +35,12 @@ mark_roots(surd_t *s)
 {
   int i;
 
-  mark(s->env);
-  mark(s->top_env);
+  MARK(s->env);
+  MARK(s->top_env);
 
   // mark symbols
   for (i = 0; i < s->symbol_table_index; i++) {
-    mark(s->symbol_table[i].symbol);
+    MARK(s->symbol_table[i].symbol);
   }
 }
 
@@ -90,7 +64,6 @@ surd_new_cell(surd_t *s)
     s->last_alloc = next;
     return next;
   } else if (s->bump < s->heap_ceil) {
-    fprintf(stderr, "Bumping!\n");
     /* bump allocate as long as we have space! */
     next = s->bump++;
     next->hist = s->last_alloc;
@@ -129,9 +102,9 @@ surd_gc(surd_t *s)
   last = s->last_alloc;
   s->SCAV = last->hist;
   while (s->SCAV != s->first_alloc) {
-    if (marked(s->SCAV)) {
+    if (MARKED(s->SCAV)) {
       possibly_mark_object(s->SCAV);
-      unmark(s->SCAV);
+      UNMARK(s->SCAV);
       last = s->SCAV;
       s->SCAV = last->hist;
     }
