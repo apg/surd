@@ -30,7 +30,6 @@ Where as a cons:
 Of course you can evaluate expressions:
 
     $ ./surd 
-
     surd 0> (((lambda (y) (lambda (x) (+ x y))) 1) 2)
     result 0: 3
 
