@@ -261,6 +261,9 @@ surd_init(surd_t *s, int hs, int ss)
   surd_install_primitive(s, "=", surd_p_eq, 2);
   surd_install_primitive(s, ">=", surd_p_ge, 2);
   surd_install_primitive(s, "<=", surd_p_le, 2);
+
+  surd_install_primitive(s, "read", surd_p_read, 0);
+  surd_install_primitive(s, "write", surd_p_write, -1);
 }
 
 void
@@ -385,7 +388,10 @@ int
 surd_list_length(surd_t *s, cell_t *c)
 {
   int len = -1;
-  if (ISCONS(c)) {
+  if (c == s->nil) {
+    return 0;
+  }
+  else if (ISCONS(c)) {
     len = 0;
     while (c != s->nil) {
       if (ISCONS(c)) {

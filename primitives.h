@@ -33,6 +33,14 @@ cell_t *surd_p_ge(surd_t *s, cell_t *args);
 cell_t *surd_p_le(surd_t *s, cell_t *args);
 cell_t *surd_p_eq(surd_t *s, cell_t *args);
 
+
+// I/O
+cell_t *surd_p_read(surd_t *s, cell_t *args);
+cell_t *surd_p_write(surd_t *s, cell_t *args);
+
 // display
 cell_t *surd_p_display(surd_t *s, cell_t *args);
+
+
+
 #endif

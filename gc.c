@@ -73,8 +73,6 @@ surd_new_cell(surd_t *s)
       s->first_alloc = next;
     }
     return next;
-  } else {
-    fprintf(stderr, "Free list is empty and no bump space?\n");
   }
   tries--;
 

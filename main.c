@@ -16,7 +16,7 @@ main(int argc, char *argv[])
     cell = surd_read(&surd, stdin);
     if (cell) {
       cell = surd_eval(&surd, cell, (&surd)->env, 1);
-      printf("result %d: ", lc);
+      printf("\n  #res:%d => ", lc);
       surd_display(&surd, stdout, cell);
       printf("\n");
     } 

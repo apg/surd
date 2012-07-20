@@ -447,3 +447,34 @@ surd_p_eq(surd_t *s, cell_t *args)
   }
   return s->nil;
 }
+
+cell_t *
+surd_p_read(surd_t *s, cell_t *args)
+{
+  cell_t *c;
+  if (surd_list_length(s, args) == 0) {
+    c = surd_read(s, stdin);
+    if (c) {
+      return c;
+    }
+    return s->nil;
+  }
+  fprintf(stderr, "arity error: read takes 0 arguments\n");
+  exit(1);
+}
+
+cell_t *
+surd_p_write(surd_t *s, cell_t *args)
+{
+  cell_t *tmp = args, *first;
+  int i = 0;
+  while (tmp != s->nil && ISCONS(tmp)) {
+    first = CAR(tmp);
+    if (i++ > 0) {
+      fputc(' ', stdout);
+    }
+    surd_write(s, stdout, first);
+    tmp = CDR(tmp);
+  }
+  return s->nil;
+}
