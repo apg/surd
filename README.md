@@ -29,10 +29,10 @@ Where as a cons:
 
 Of course you can evaluate expressions:
 
-$ ./surd 
+    $ ./surd 
 
-surd 0> (((lambda (y) (lambda (x) (+ x y))) 1) 2)
-result 0: 3
+    surd 0> (((lambda (y) (lambda (x) (+ x y))) 1) 2)
+    result 0: 3
 
 By default the heap size is 1000 cells. You'll never need more than
 that because you're unlikely to right a real program in it!
