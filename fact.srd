@@ -3,4 +3,9 @@
       (* (fact (- x 1)) x)
       1)))
 
-(fact 5)
+(def loop (lambda (n accum)
+   (if (> n 0)
+      (loop (- n 1) (+ accum (fact n)))
+      (write accum))))
+
+(loop 10 0)
