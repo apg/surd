@@ -274,8 +274,16 @@ surd_p_mod(surd_t *s, cell_t *args)
 }
 
 // display
-cell_t *surd_p_display(surd_t *s, cell_t *args)
+cell_t *
+surd_p_display(surd_t *s, cell_t *args)
 {
+  if (surd_list_length(s, args) == 1) {
+    surd_display(s, stdout, CAR(args));
+  }
+  else {
+    fprintf(stderr, "arity error: display takes 1 argument\n");
+    exit(1);
+  }
   return s->nil;
 }
 

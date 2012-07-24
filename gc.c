@@ -38,15 +38,20 @@ mark_roots(surd_t *s)
   MARK(s->env);
   MARK(s->top_env);
 
-  for (i = 0; i < s->root_stack_size; i++) {
+  /*fprintf(stderr, "Marking roots... These are the root stack!\n");*/
+  for (i = 0; i < s->roots_size; i++) {
     if (s->roots[i] != NULL) {
+      /*surd_display(s, stderr, s->roots[i]);*/
+      fprintf(stderr, "\n");
       MARK(s->roots[i]);
     }
   }
 
-  // mark symbols
+  /*fprintf(stderr, "Marking symbols... \n");*/
   for (i = 0; i < s->symbol_table_index; i++) {
     MARK(s->symbol_table[i].symbol);
+    /*surd_display(s, stderr, s->symbol_table[i].symbol);*/
+    fprintf(stderr, "\n");
   }
 }
 
@@ -77,6 +82,8 @@ surd_add_root(surd_t *s, cell_t *root)
   exit(1);
 }
 
+/* Should probably have a "pop_root", which rms all the roots
+   to the right of `root` */
 void
 surd_rm_root(surd_t *s, cell_t *root)
 {
@@ -88,8 +95,9 @@ surd_rm_root(surd_t *s, cell_t *root)
     }
   }
 
-  if (i < s->root_stack_index) {
-    memmove(s->roots + i, roots + i + 1, sizeof(roots[0]) * (s->roots_index - i));
+  if (i < s->roots_index) {
+    memmove(s->roots + i, s->roots + i + 1, 
+            sizeof(s->roots[0]) * (s->roots_index - i));
     s->roots_index--;
   }
 }
@@ -146,10 +154,11 @@ surd_gc(surd_t *s)
 {
   cell_t *tmp, *last;
   int count = 0;
+  int iterations = 0;
   mark_roots(s);
   last = s->last_alloc;
   s->SCAV = last->hist;
-  while (s->SCAV != s->first_alloc) {
+  while (s->SCAV != s->first_alloc && iterations++ < 100) {
     if (MARKED(s->SCAV)) {
       possibly_mark_object(s->SCAV);
       UNMARK(s->SCAV);
