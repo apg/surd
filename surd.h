@@ -86,6 +86,10 @@ struct surd {
   cell_t *nil; 
 
   /* GC context */
+  cell_t **roots;
+  int roots_index;
+  int roots_size;
+
   cell_t *first_alloc;
   cell_t *last_alloc;
   cell_t *SCAV;
@@ -106,6 +110,8 @@ cell_t *surd_make_box(surd_t *, cell_t *value);
 cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env, int top);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
+int surd_add_root(surd_t *, cell_t *);
+int surd_rm_root(surd_t *, cell_t *);
 int surd_gc(surd_t *);
 
 void surd_num_init(surd_t *, cell_t *c, int value);

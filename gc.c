@@ -38,9 +38,59 @@ mark_roots(surd_t *s)
   MARK(s->env);
   MARK(s->top_env);
 
+  for (i = 0; i < s->root_stack_size; i++) {
+    if (s->roots[i] != NULL) {
+      MARK(s->roots[i]);
+    }
+  }
+
   // mark symbols
   for (i = 0; i < s->symbol_table_index; i++) {
     MARK(s->symbol_table[i].symbol);
+  }
+}
+
+void 
+surd_add_root(surd_t *s, cell_t *root)
+{
+  if (s->roots_index == s->roots_size) {
+    if (s->roots_size) {
+      s->roots = realloc(s->roots, sizeof(*s->roots) * (s->roots_size * 2));
+      if (s->roots == NULL) {
+        goto error;
+      }
+      s->roots_size *= 2;
+    } 
+    else {
+      // of course this could fail...
+      s->roots = malloc(sizeof(*s->roots) * 128);
+      if (s->roots == NULL) {
+        goto error;
+      }
+      s->roots_size = 128;
+    }
+  }
+  s->roots[s->roots_index++] = root;
+  return;
+ error:
+  fprintf(stderr, "failed to allocate space for root storage\n");
+  exit(1);
+}
+
+void
+surd_rm_root(surd_t *s, cell_t *root)
+{
+  int i;
+
+  for (i= 0;  i < s->roots_index;  i++) {
+    if (s->roots[i] == root) {
+      break;
+    }
+  }
+
+  if (i < s->root_stack_index) {
+    memmove(s->roots + i, roots + i + 1, sizeof(roots[0]) * (s->roots_index - i));
+    s->roots_index--;
   }
 }
 
@@ -108,6 +158,7 @@ surd_gc(surd_t *s)
     }
     else {
       tmp = s->SCAV;
+      fprintf(stderr, "+ Reclaiming %d\n", TYPE(tmp));
       s->SCAV = s->SCAV->hist;
       last->hist = s->SCAV;
       free_cell(s, tmp);

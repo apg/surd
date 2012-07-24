@@ -230,6 +230,10 @@ surd_init(surd_t *s, int hs, int ss)
   s->env = s->nil;
   s->top_env = s->nil;
 
+  s->roots = NULL;
+  s->roots_index = 0;
+  s->roots_size = 0;
+
   // link the heap into a free_list so we don't have to linear search
   s->free_list = s->nil;
   s->first_alloc = NULL;
@@ -329,7 +333,7 @@ surd_intern(surd_t *s, char *str)
     newsize = sizeof(*s->symbol_table) * s->symbol_table_size * 2;
     s->symbol_table = realloc(s->symbol_table, newsize);
     if (s->symbol_table) {
-      c = surd_new_cell(s);
+      surd_add_root(s, c);
       if (c != s->nil) {
         c->flags = TSYMBOL;
         c->_value.num = i;
@@ -515,7 +519,6 @@ _read_list(surd_t *s, FILE *in)
   }
 
   first = surd_cons(s, tmp, s->nil);
-  MARK(first);
   next = first;
 
   for (;;) {
@@ -660,6 +663,8 @@ cell_t *
 surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
 {
   cell_t *car, *tmp;
+
+  MARK(exp);
 
   //  surd_display(s, stdout, exp);
   if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {

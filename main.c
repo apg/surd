@@ -38,7 +38,7 @@ main(int argc, char *argv[])
 {
   FILE *in;
   surd_t surd;
-  surd_init(&surd, 1000, 1000);
+  surd_init(&surd, 200, 2000);
 
   if (argc > 1) {
     in = fopen(argv[1], "r");
