@@ -125,12 +125,12 @@ _env_extend(surd_t *s, cell_t *env, cell_t *params, cell_t *args)
 {
   cell_t *sym, *val, *tmp, *result;
 
-  fprintf(stderr, "~=~=~=~=~=~=~=~=~=~=~=~=~=\n");
+  /*fprintf(stderr, "~=~=~=~=~=~=~=~=~=~=~=~=~=\n");
   fprintf(stderr, "params: ");
   surd_display(s, stderr, params);
   fprintf(stderr, "\nargs: ");
   surd_display(s, stderr, args);
-  fprintf(stderr, "\n");
+  fprintf(stderr, "\n");*/
 
   surd_add_root(s, env);
   surd_add_root(s, params);
@@ -191,14 +191,12 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
     if (evaled) {
       surd_rm_root(s, evaled);
     }
-    if (next) {
-      surd_rm_root(s, next);
-    }
 
     evaled = surd_eval(s, CAR(tmp), env, 0);
     surd_add_root(s, evaled);
     next_next = surd_cons(s, evaled, s->nil);
     next->_value.cons.cdr = next_next;
+    surd_rm_root(s, next);
     next = next_next;
     surd_add_root(s, next);
     tmp = CDR(tmp);
@@ -228,6 +226,7 @@ _eval_if(surd_t *s, cell_t *exp, cell_t *env)
   consequent = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
   alternate = surd_car(s, surd_cdr(s, surd_cdr(s, surd_cdr(s, exp))));
   val = surd_eval(s, condition, env, 0);
+  surd_add_root(s, val);
 
   if (val == s->nil) {
     if (alternate == s->nil) {
@@ -349,6 +348,7 @@ surd_init(surd_t *s, int hs, int ss)
 
   surd_install_primitive(s, "read", surd_p_read, 0);
   surd_install_primitive(s, "write", surd_p_write, -1);
+  surd_install_primitive(s, "print-symbols", surd_p_symbols, -1);
 }
 
 void
@@ -393,12 +393,12 @@ surd_intern(surd_t *s, char *str)
   if (i >= 0) {
     return s->symbol_table[i].symbol;
   }
+
   i = s->symbol_table_index;
   // didn't find it, so put the index at the end
 
   if (i < s->symbol_table_size) {
     c = surd_new_cell(s);
-    surd_add_root(s, c);
     if (c != s->nil) {
       c->flags = TSYMBOL;
       c->_value.num = i;
@@ -410,14 +410,12 @@ surd_intern(surd_t *s, char *str)
       fprintf(stderr, "error: out of memory in intern()\n");
       exit(1);
     }
-    surd_rm_root(s, c);
   }
   else {
     newsize = sizeof(*s->symbol_table) * s->symbol_table_size * 2;
     s->symbol_table = realloc(s->symbol_table, newsize);
     if (s->symbol_table) {
       c = surd_new_cell(s);
-      surd_add_root(s, c);
       if (c != s->nil) {
         c->flags = TSYMBOL;
         c->_value.num = i;
@@ -429,7 +427,6 @@ surd_intern(surd_t *s, char *str)
         fprintf(stderr, "error: out of memory in intern()\n");
         exit(1);
       }
-      surd_rm_root(s, c);
     }
     else {
       fprintf(stderr, "error: out of memory in intern()\n");
@@ -809,6 +806,9 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
       surd_add_root(s, tmp);
 
       if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
+        /*        fprintf(stderr, "Env being used to apply: \t");
+                  surd_display(s, stderr, env);
+                  fprintf(stderr, "\n");*/
         tmp2 = surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
         surd_rm_root(s, tmp);
         surd_rm_root(s, env);
@@ -828,7 +828,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
 cell_t *
 surd_apply(surd_t *s, cell_t *closure, cell_t *args)
 {
-  cell_t *nenv, *code;
+  cell_t *nenv, *code, *tmp;
   int carity;
   if (closure == NULL && closure == s->nil) {
     fprintf(stderr, "error: attempt to apply a null value\n");
@@ -851,7 +851,10 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
     code = closure->_value.cons.car;
     nenv = closure->_value.cons.cdr;
     nenv = _env_extend(s, nenv, surd_car(s, surd_cdr(s, code)), args);
-    return surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 0);
+    surd_add_root(s, nenv);
+    tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 0);
+    surd_rm_root(s, nenv);
+    return tmp;
   }
   return s->nil;
 }

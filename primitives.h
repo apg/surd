@@ -42,5 +42,9 @@ cell_t *surd_p_write(surd_t *s, cell_t *args);
 cell_t *surd_p_display(surd_t *s, cell_t *args);
 
 
+// debug
+cell_t *surd_p_symbols(surd_t *s, cell_t *args);
+
+
 
 #endif

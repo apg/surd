@@ -8,4 +8,4 @@
       (loop (- n 1) (+ accum (fact n)))
       (write accum))))
 
-(loop 10 0)
+(loop 9 0)

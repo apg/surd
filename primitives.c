@@ -486,3 +486,14 @@ surd_p_write(surd_t *s, cell_t *args)
   }
   return s->nil;
 }
+
+
+cell_t *
+surd_p_symbols(surd_t *s, cell_t *ignore)
+{
+  int i;
+  for (i = 0; i < s->symbol_table_index; i++) {
+    fprintf(stderr, "%d. (%s)  0x%lx\n", i, s->symbol_table[i].name, (unsigned long)s->symbol_table[i].symbol);
+  }
+  return s->nil;
+}

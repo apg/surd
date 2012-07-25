@@ -39,10 +39,8 @@ mark_roots(surd_t *s)
   MARK(s->top_env);
 
   /*fprintf(stderr, "Marking roots... These are the root stack!\n");*/
-  for (i = 0; i < s->roots_size; i++) {
+  for (i = 0; i < s->roots_index; i++) {
     if (s->roots[i] != NULL) {
-      /*surd_display(s, stderr, s->roots[i]);*/
-      fprintf(stderr, "\n");
       MARK(s->roots[i]);
     }
   }
@@ -50,8 +48,6 @@ mark_roots(surd_t *s)
   /*fprintf(stderr, "Marking symbols... \n");*/
   for (i = 0; i < s->symbol_table_index; i++) {
     MARK(s->symbol_table[i].symbol);
-    /*surd_display(s, stderr, s->symbol_table[i].symbol);*/
-    fprintf(stderr, "\n");
   }
 }
 
@@ -155,6 +151,9 @@ surd_gc(surd_t *s)
   cell_t *tmp, *last;
   int count = 0;
   int iterations = 0;
+
+  /*  surd_p_symbols(s, s->nil);*/
+
   mark_roots(s);
   last = s->last_alloc;
   s->SCAV = last->hist;
@@ -167,12 +166,13 @@ surd_gc(surd_t *s)
     }
     else {
       tmp = s->SCAV;
-      fprintf(stderr, "+ Reclaiming %d\n", TYPE(tmp));
+      /*fprintf(stderr, "+ Reclaiming %d\n", TYPE(tmp));*/
       s->SCAV = s->SCAV->hist;
       last->hist = s->SCAV;
       free_cell(s, tmp);
       count++;
     }
   }
+  /* surd_p_symbols(s, s->nil); */
   return count;
 }
