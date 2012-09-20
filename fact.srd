@@ -1,9 +1,9 @@
-(def fact (lambda (x)
+(def fact (fn (x)
    (if (> x 1)
       (* (fact (- x 1)) x)
       1)))
 
-(def loop (lambda (n accum)
+(def loop (fn (n accum)
    (if (> n 0)
       (loop (- n 1) (+ accum (fact n)))
       (write accum))))

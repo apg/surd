@@ -2,13 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <gc.h>
 #include "surd.h"
 
 #include "primitives.h"
 
 #define _PRE_INTERNED_SYMBOLS_SIZE 4
 static char *_symbols_to_intern[] = {
-  "quote", "if", "lambda", "def"
+  "quote", "if", "fn", "def"
 };
 
 static inline int
@@ -103,38 +104,15 @@ static cell_t *
 _env_insert(surd_t *s, cell_t *env, cell_t *sym, cell_t *value)
 {
   cell_t *c, *result;
-  surd_add_root(s, env);
-  surd_add_root(s, value);
-  surd_add_root(s, sym);
-
   c = surd_cons(s, sym, value);
-  surd_add_root(s, c);
-
   result = surd_cons(s, c, env);
-
-  surd_rm_root(s, c);
-  surd_rm_root(s, sym);
-  surd_rm_root(s, value);
-  surd_rm_root(s, env);
-  
   return result;
 }
 
 static cell_t *
 _env_extend(surd_t *s, cell_t *env, cell_t *params, cell_t *args)
 {
-  cell_t *sym, *val, *tmp, *result;
-
-  /*fprintf(stderr, "~=~=~=~=~=~=~=~=~=~=~=~=~=\n");
-  fprintf(stderr, "params: ");
-  surd_display(s, stderr, params);
-  fprintf(stderr, "\nargs: ");
-  surd_display(s, stderr, args);
-  fprintf(stderr, "\n");*/
-
-  surd_add_root(s, env);
-  surd_add_root(s, params);
-  surd_add_root(s, args);
+  cell_t *sym, *val, *result;
 
   result = env;
 
@@ -154,19 +132,11 @@ _env_extend(surd_t *s, cell_t *env, cell_t *params, cell_t *args)
     else {
       sym = surd_car(s, params);
       val = surd_car(s, args);
-      tmp = env;
       env = _env_insert(s, env, sym, val);
-      surd_rm_root(s, tmp);
-      surd_add_root(s, env);
       params = surd_cdr(s, params);
       args = surd_cdr(s, args);
     }
   }
-
-  surd_rm_root(s, args);
-  surd_rm_root(s, params);
-  surd_rm_root(s, env);
-
 
   return result;
 }
@@ -178,8 +148,6 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
   if (list == s->nil) {
     return s->nil;
   }
-  surd_add_root(s, list);
-  surd_add_root(s, env);
 
   tmp = surd_eval(s, CAR(list), env, 0);
   first = surd_cons(s, tmp,  s->nil);
@@ -188,29 +156,12 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
   tmp = CDR(list);
 
   while (tmp != s->nil && tmp) {
-    if (evaled) {
-      surd_rm_root(s, evaled);
-    }
-
     evaled = surd_eval(s, CAR(tmp), env, 0);
-    surd_add_root(s, evaled);
     next_next = surd_cons(s, evaled, s->nil);
     next->_value.cons.cdr = next_next;
-    surd_rm_root(s, next);
     next = next_next;
-    surd_add_root(s, next);
     tmp = CDR(tmp);
   }
-
-  if (!tmp) {
-    fprintf(stderr, "whoops: tmp was NULL in eval_list\n");
-  }
-
-  surd_rm_root(s, evaled);
-  surd_rm_root(s, next);
-  surd_rm_root(s, env);
-  surd_rm_root(s, list);
-
   return first;
 }
 
@@ -219,35 +170,18 @@ _eval_if(surd_t *s, cell_t *exp, cell_t *env)
 {
   cell_t *result, *condition, *consequent, *alternate, *val;
 
-  surd_add_root(s, exp);
-  surd_add_root(s, env);
-
   condition = surd_car(s, surd_cdr(s, exp));
   consequent = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
   alternate = surd_car(s, surd_cdr(s, surd_cdr(s, surd_cdr(s, exp))));
   val = surd_eval(s, condition, env, 0);
-  surd_add_root(s, val);
 
   if (val == s->nil) {
-    if (alternate == s->nil) {
-      result = s->nil;
-    }
-    else {
-      result = surd_eval(s, alternate, env, 0);
-    }
+    result = alternate == s->nil ? s->nil: alternate;
   }
   else {
-    if (consequent == s->nil) {
-      result = s->nil;
-    } 
-    else {
-      result = surd_eval(s, consequent, env, 0);
-    }
+    result = consequent;
   }
 
-  surd_rm_root(s, val);
-  surd_rm_root(s, exp);
-  surd_rm_root(s, env);
   return result;
 
 }
@@ -259,23 +193,15 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
   cell_t *value = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
   cell_t *evaled;
 
-  surd_add_root(s, exp);
-  surd_add_root(s, env);
-
   // TODO: check arity!
   if (ISSYM(symbol)) {
     evaled = surd_eval(s, value, env, 0);
-    surd_add_root(s, evaled);
     // TODO: should probably store boxes so we can safely replace...
     s->top_env = _env_insert(s, s->top_env, symbol, evaled);
-    surd_rm_root(s, evaled);
   } 
   else {
     fprintf(stderr, "error: def expected symbol as second argument\n");
   }
-
-  surd_rm_root(s, env);
-  surd_rm_root(s, exp);
 
   return s->nil;
 }
@@ -285,38 +211,16 @@ void
 surd_init(surd_t *s, int hs, int ss)
 {
   int i;
-  s->heap = malloc(sizeof(*s->heap) * hs);
-  s->heap_size = hs;
-  s->heap_ceil = s->heap + (hs + 1);
-  s->free_list_cells = 0;
-
-  s->symbol_table = malloc(sizeof(*s->symbol_table) * ss);
+  s->symbol_table = GC_malloc(sizeof(*s->symbol_table) * ss);
 
   s->symbol_table_index = 0;
   s->symbol_table_size = ss;
-  s->nil = s->heap;
+  s->nil = (cell_t *)0;
 
-  memset(s->heap, 0, sizeof(s->heap) * hs);
   memset(s->symbol_table, 0, sizeof(*s->symbol_table) * ss);
-
-  memset(s->nil, 0, sizeof(s->nil));
-  s->nil->flags = TNIL;
-  s->nil->_value.num = 0;
-
-  // incr heap pointer since nil is right before it.
-  s->heap += 1;
-  s->bump = s->heap;
 
   s->env = s->nil;
   s->top_env = s->nil;
-
-  s->roots = NULL;
-  s->roots_index = 0;
-  s->roots_size = 0;
-
-  // link the heap into a free_list so we don't have to linear search
-  s->free_list = s->nil;
-  s->first_alloc = NULL;
 
   // intern some key symbols
   for (i = 0; i < _PRE_INTERNED_SYMBOLS_SIZE; i++) {
@@ -354,25 +258,13 @@ surd_init(surd_t *s, int hs, int ss)
 void
 surd_destroy(surd_t *s)
 {
-  int i;
-
-  // kills the heap
-  // NIL is the the pointer to the originally allocated space.
-  if (s->nil) {
-    free(s->nil);
-  }
   if (s->symbol_table) {
-    // free all the symbols
-    for (i = 0; i < s->symbol_table_index; i++) {
-      free(s->symbol_table[i].name);
-    }
-    free(s->symbol_table);
+    s->symbol_table = NULL;
     s->symbol_table_size = 0;
     s->symbol_table_index = 0;
   }
   /* need to reclaim these--this is a memleak */
   s->env = NULL;
-  s->nil = NULL;
 }
 
 void
@@ -502,15 +394,6 @@ surd_make_closure(surd_t *s, cell_t *code, cell_t *env)
   return cls;
 }
 
-cell_t *
-surd_make_box(surd_t *s, cell_t *value)
-{
-  cell_t *box;
-  box = surd_cons(s, value, s->nil);
-  box->flags = TBOX;
-  return box;
-}
-
 static cell_t *_read(surd_t *s, FILE *in);
 
 static cell_t *
@@ -529,7 +412,6 @@ _read_fixnum(surd_t *s, FILE *in, int sign)
   fix = surd_new_cell(s);
   if (fix != s->nil) {
     surd_num_init(s, fix, i * sign);
-    MARK(fix);
     return fix;
   }
 
@@ -602,19 +484,16 @@ _read_list(surd_t *s, FILE *in)
 
   /* TODO: left off here! */
   first = surd_cons(s, tmp, s->nil);
-  surd_add_root(s, first);
   next = first;
 
   for (;;) {
     tmp = _read(s, in);
-    surd_add_root(s, tmp);
     if (!tmp) { // got an end delimiter, so we're done
       goto done;
     }
     next_next = surd_cons(s, tmp, s->nil);
     next->_value.cons.cdr = next_next;
     next = next_next;
-    surd_rm_root(s, tmp);
   }
 
  done:
@@ -659,15 +538,9 @@ _read(surd_t *s, FILE *in)
 
     case '\'': // quote
       sym = surd_intern(s, "quote");
-      surd_add_root(s, sym);
       tmp = surd_read(s, in);
-      surd_add_root(s, tmp);
       tmp2 = surd_cons(s, tmp, s->nil);
-      surd_add_root(s, tmp2);
       ret = surd_cons(s, sym, tmp2);
-      surd_rm_root(s, tmp2);
-      surd_rm_root(s, tmp);
-      surd_rm_root(s, sym);
       return ret;
 
     case '(':
@@ -758,66 +631,59 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
 {
   cell_t *car, *tmp, *tmp2;
 
-  //  surd_display(s, stdout, exp);
-  if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {
-    return exp;
-  }
-  else if (ISSYM(exp)) {
-    return _env_lookup(s, env, exp);
-  }
-  else {
-    car = CAR(exp);
-    if (car == surd_intern(s, "quote")) {
-      tmp = CDR(exp);
-      if (ISCONS(tmp)) {
-        return CAR(tmp);
+  for (;;) {
+    //  surd_display(s, stdout, exp);
+    if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {
+      return exp;
+    }
+    else if (ISSYM(exp)) {
+      return _env_lookup(s, env, exp);
+    }
+    else if (ISCONS(exp)) {
+      car = CAR(exp);
+      if (car == surd_intern(s, "quote")) {
+        tmp = CDR(exp);
+        if (ISCONS(tmp)) {
+          return CAR(tmp);
+        }
+        else {
+          fprintf(stderr, "error: attempted to take the car of nil\n");
+          // dont' blow up, just return nil
+          return s->nil;
+        }
+      }
+      else if (car == surd_intern(s, "if")) {
+        exp = _eval_if(s, exp, env);
+      }
+      else if (car == surd_intern(s, "fn")) {
+        if (surd_list_length(s, exp) > 2) {
+          return surd_make_closure(s, exp, env);
+        }
+        else {
+          fprintf(stderr, "error: fn requires at least 2 arguments\n");
+        }
+      }
+      else if (car == surd_intern(s, "def")) {
+        if (top) {
+          return _eval_def(s, exp, env);
+        } else {
+          fprintf(stderr, "error: def cannot be called from non-toplevel "
+                  "expression\n");
+          exit(1);
+        }
       }
       else {
-        fprintf(stderr, "error: attempted to take the car of nil\n");
-        // dont' blow up, just return nil
-        return s->nil;
-      }
-    }
-    else if (car == surd_intern(s, "if")) {
-      return _eval_if(s, exp, env);
-    }
-    else if (car == surd_intern(s, "lambda")) {
-      if (surd_list_length(s, exp) > 2) {
-        return surd_make_closure(s, exp, env);
-      }
-      else {
-        fprintf(stderr, "error: lambda requires at least 2 arguments\n");
-      }
-    }
-    else if (car == surd_intern(s, "def")) {
-      if (top) {
-        return _eval_def(s, exp, env);
-      } else {
-        fprintf(stderr, "error: def cannot be called from non-toplevel "
-                "expression\n");
-        exit(1);
-      }
-    }
-    else {
-      // apply
-      surd_add_root(s, car);
-      surd_add_root(s, env);
-      tmp = surd_eval(s, car, env, 0);
-      surd_add_root(s, tmp);
-
-      if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
-        /*        fprintf(stderr, "Env being used to apply: \t");
-                  surd_display(s, stderr, env);
-                  fprintf(stderr, "\n");*/
-        tmp2 = surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
-        surd_rm_root(s, tmp);
-        surd_rm_root(s, env);
-        surd_rm_root(s, car);
-        return tmp2;
-      }
-      else {
-        fprintf(stderr, "error:attempt to apply that which is not applyable\n");
-        exit(1);
+        // apply
+        tmp = surd_eval(s, car, env, 0);
+        // TODO: the closure path can be optimized into the loop
+        if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
+          tmp2 = surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
+          return tmp2;
+        }
+        else {
+          fprintf(stderr, "error:attempt to apply that which is not applyable\n");
+          exit(1);
+        }
       }
     }
   }
@@ -851,9 +717,7 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
     code = closure->_value.cons.car;
     nenv = closure->_value.cons.cdr;
     nenv = _env_extend(s, nenv, surd_car(s, surd_cdr(s, code)), args);
-    surd_add_root(s, nenv);
     tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 0);
-    surd_rm_root(s, nenv);
     return tmp;
   }
   return s->nil;

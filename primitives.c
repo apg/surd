@@ -1,8 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <gc.h>
 #include "surd.h"
 #include "primitives.h"
+
 
 #define MIN(x, y) ((x < y) ? x: y)
 
@@ -79,6 +81,9 @@ surd_p_consp(surd_t *s, cell_t *args)
 cell_t *
 surd_p_nilp(surd_t *s, cell_t *args)
 {
+  if (surd_list_length(s, args) == 1) {
+    return CAR(args);
+  }
   return s->nil;
 }
 
