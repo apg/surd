@@ -15,8 +15,10 @@ typedef enum {
   TFIXNUM=0x1,
   TSYMBOL=0x2,
   TCONS=0x4,
-  TCLOSURE=0x8, // env goes in cdr, code in car
-  TPRIMITIVE=0x10
+  TSTRING=0x8,
+  TCLOSURE=0x10, // env goes in cdr, code in car
+  TPRIMITIVE=0x20,
+  TMACRO=0x40
 } type_t;
 
 #define TYPE_BITS 16
@@ -27,7 +29,6 @@ typedef enum {
 
 struct cell {
   unsigned int flags;
-  cell_t *hist;
   union {
     int num;
     struct cons {
@@ -77,7 +78,7 @@ int surd_list_length(surd_t *s, cell_t *c);
 cell_t *surd_car(surd_t *, cell_t *cns);
 cell_t *surd_cdr(surd_t *, cell_t *cns);
 cell_t *surd_make_closure(surd_t *, cell_t *code, cell_t *env);
-cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env, int top);
+cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
 void surd_num_init(surd_t *, cell_t *c, int value);

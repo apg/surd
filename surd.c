@@ -149,14 +149,14 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
     return s->nil;
   }
 
-  tmp = surd_eval(s, CAR(list), env, 0);
+  tmp = surd_eval(s, CAR(list), env);
   first = surd_cons(s, tmp,  s->nil);
 
   next = first;
   tmp = CDR(list);
 
   while (tmp != s->nil && tmp) {
-    evaled = surd_eval(s, CAR(tmp), env, 0);
+    evaled = surd_eval(s, CAR(tmp), env);
     next_next = surd_cons(s, evaled, s->nil);
     next->_value.cons.cdr = next_next;
     next = next_next;
@@ -173,7 +173,7 @@ _eval_if(surd_t *s, cell_t *exp, cell_t *env)
   condition = surd_car(s, surd_cdr(s, exp));
   consequent = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
   alternate = surd_car(s, surd_cdr(s, surd_cdr(s, surd_cdr(s, exp))));
-  val = surd_eval(s, condition, env, 0);
+  val = surd_eval(s, condition, env);
 
   if (val == s->nil) {
     result = alternate == s->nil ? s->nil: alternate;
@@ -195,7 +195,7 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
 
   // TODO: check arity!
   if (ISSYM(symbol)) {
-    evaled = surd_eval(s, value, env, 0);
+    evaled = surd_eval(s, value, env);
     // TODO: should probably store boxes so we can safely replace...
     s->top_env = _env_insert(s, s->top_env, symbol, evaled);
   } 
@@ -627,7 +627,7 @@ surd_write(surd_t *s, FILE *out, cell_t *exp)
 }
 
 cell_t *
-surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
+surd_eval(surd_t *s, cell_t *exp, cell_t *env)
 {
   cell_t *car, *tmp, *tmp2;
 
@@ -674,7 +674,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
       }
       else {
         // apply
-        tmp = surd_eval(s, car, env, 0);
+        tmp = surd_eval(s, car, env);
         // TODO: the closure path can be optimized into the loop
         if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
           tmp2 = surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
@@ -717,7 +717,7 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
     code = closure->_value.cons.car;
     nenv = closure->_value.cons.cdr;
     nenv = _env_extend(s, nenv, surd_car(s, surd_cdr(s, code)), args);
-    tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 0);
+    tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv);
     return tmp;
   }
   return s->nil;
