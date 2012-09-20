@@ -36,23 +36,11 @@ Of course you can evaluate expressions:
 The Allocator / GC
 ==================
 
-<strike>
-Yes, surd is absurd, but it *does* have a garbage collector. The
-algorithm is a one-pass mark-sweep as described by Armstong and
-Virding in "One Pass Real-Time Generational Mark-Sweep Garbage
-Collection (1995)"
+surd uses libgc for now, though it did at one point use the one-pass 
+mark-sweep as described by Armstong and Virding in "One Pass
+Real-Time Generational Mark-Sweep Garbage Collection (1995)"
 ([link](http://citeseer.ist.psu.edu/viewdoc/summary?doi=10.1.1.42.7791))
 
-I haven't yet modified it to make it generational, or incremental
-even, but those are fairly trivial changes, and I'll do so at some
-point.
-
-The allocator is dirt simple since cells are the same size. Cells
-are bump allocated off of a `malloc`'d array of cells when the free-list
-is empty. The free list is filled lazily by the garbage collector.
-</strike>
-
-surd uses libgc for now.
 
 To do
 =====
@@ -63,7 +51,6 @@ To do
 4. Implement let, letrec (might require a special rec form)
 5. tail-call optimization.
 6. Larger standard library implemented in surd.
-7. <strike>Grow the heap if GC fails to recovery any cells</strike>
-8. hygienic defmacros and quasiquote, unquote, unquote-splicing
-9. ... 
+7. hygienic defmacros and quasiquote, unquote, unquote-splicing
+8. ... 
 
