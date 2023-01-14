@@ -27,7 +27,7 @@ _is_initial(int c) {
 }
 
 static inline int
-_is_sym_char(int c) 
+_is_sym_char(int c)
 {
   return (_is_initial(c) || isdigit(c) || c == '\'');
 }
@@ -149,14 +149,14 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
     return s->nil;
   }
 
-  tmp = surd_eval(s, CAR(list), env);
+  tmp = surd_eval(s, CAR(list), env, 0);
   first = surd_cons(s, tmp,  s->nil);
 
   next = first;
   tmp = CDR(list);
 
   while (tmp != s->nil && tmp) {
-    evaled = surd_eval(s, CAR(tmp), env);
+    evaled = surd_eval(s, CAR(tmp), env, 0);
     next_next = surd_cons(s, evaled, s->nil);
     next->_value.cons.cdr = next_next;
     next = next_next;
@@ -173,7 +173,7 @@ _eval_if(surd_t *s, cell_t *exp, cell_t *env)
   condition = surd_car(s, surd_cdr(s, exp));
   consequent = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
   alternate = surd_car(s, surd_cdr(s, surd_cdr(s, surd_cdr(s, exp))));
-  val = surd_eval(s, condition, env);
+  val = surd_eval(s, condition, env, 0);
 
   if (val == s->nil) {
     result = alternate == s->nil ? s->nil: alternate;
@@ -195,10 +195,10 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
 
   // TODO: check arity!
   if (ISSYM(symbol)) {
-    evaled = surd_eval(s, value, env);
+    evaled = surd_eval(s, value, env, 0);
     // TODO: should probably store boxes so we can safely replace...
     s->top_env = _env_insert(s, s->top_env, symbol, evaled);
-  } 
+  }
   else {
     fprintf(stderr, "error: def expected symbol as second argument\n");
   }
@@ -207,7 +207,7 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
 }
 
 
-void 
+void
 surd_init(surd_t *s, int hs, int ss)
 {
   int i;
@@ -329,7 +329,7 @@ surd_intern(surd_t *s, char *str)
 }
 
 void
-surd_install_primitive(surd_t *s, char *name, 
+surd_install_primitive(surd_t *s, char *name,
                        cell_t *(*func)(surd_t *, cell_t *), int arity)
 {
   cell_t *sym = surd_intern(s, name);
@@ -401,7 +401,7 @@ _read_fixnum(surd_t *s, FILE *in, int sign)
 {
   cell_t *fix;
   int c, i = 0;
-  
+
   c = fgetc(in);
   while (isdigit(c)) {
     i = (i * 10) + (c - '0');
@@ -432,7 +432,7 @@ _eat_comment(FILE *in)
 static cell_t *
 _read_symbol(surd_t *s, FILE *in)
 {
- 
+
   cell_t *sym;
   char buffer[128];
   int c, i = 0;
@@ -465,7 +465,7 @@ _read_symbol(surd_t *s, FILE *in)
   }
  done:
   sym = surd_intern(s, buffer);
-  
+
   return sym;
 }
 
@@ -627,7 +627,7 @@ surd_write(surd_t *s, FILE *out, cell_t *exp)
 }
 
 cell_t *
-surd_eval(surd_t *s, cell_t *exp, cell_t *env)
+surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
 {
   cell_t *car, *tmp, *tmp2;
 
@@ -674,7 +674,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env)
       }
       else {
         // apply
-        tmp = surd_eval(s, car, env);
+        tmp = surd_eval(s, car, env, 0);
         // TODO: the closure path can be optimized into the loop
         if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
           tmp2 = surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
@@ -717,7 +717,7 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
     code = closure->_value.cons.car;
     nenv = closure->_value.cons.cdr;
     nenv = _env_extend(s, nenv, surd_car(s, surd_cdr(s, code)), args);
-    tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv);
+    tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 1);
     return tmp;
   }
   return s->nil;

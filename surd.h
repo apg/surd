@@ -1,7 +1,7 @@
 #ifndef _SURD_H
 #define _SURD_H
 
-// Rob Pike says I shouldn't do this... 
+// Rob Pike says I shouldn't do this...
 // http://doc.cat-v.org/bell_labs/pikestyle
 #include <stdio.h>
 
@@ -49,22 +49,22 @@ struct symtab_entry {
 
 struct surd {
   /* Symbol table: symbols use cells as well as external memory
-     created on the fly via malloc 
+     created on the fly via malloc
   */
   symtab_entry_t *symbol_table;
 
   /* size of symbol table */
-  int symbol_table_size; 
+  int symbol_table_size;
 
   /* index of the next free symbol */
   int symbol_table_index;
 
   /* initial eval environment */
-  cell_t *env; 
+  cell_t *env;
 
   /* Top level environment */
-  cell_t *top_env; 
-  cell_t *nil; 
+  cell_t *top_env;
+  cell_t *nil;
 };
 
 void surd_init(surd_t *, int hs, int ss);
@@ -72,13 +72,13 @@ void surd_destroy(surd_t *);
 
 void surd_install_primitive(surd_t *, char *name,
                             cell_t *(*func)(surd_t *, cell_t *), int arity);
-cell_t *surd_new_cell(surd_t *); 
+cell_t *surd_new_cell(surd_t *);
 cell_t *surd_cons(surd_t *, cell_t *car, cell_t *cdr);
 int surd_list_length(surd_t *s, cell_t *c);
 cell_t *surd_car(surd_t *, cell_t *cns);
 cell_t *surd_cdr(surd_t *, cell_t *cns);
 cell_t *surd_make_closure(surd_t *, cell_t *code, cell_t *env);
-cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env);
+cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env, int top);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
 void surd_num_init(surd_t *, cell_t *c, int value);
