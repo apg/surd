@@ -429,28 +429,66 @@ surd_make_closure(surd_t *s, cell_t *code, cell_t *env)
 #define READ_WHITESPACE " \t\n\r"
 #define READ_DELIMS " \t\r\n()[]{};#"
 
+typedef int port_getc(void *);
+typedef int port_ungetc(void *, int);
+typedef int port_putc(void *, int);
+typedef int port_close(void *);
+typedef int64_t port_tell(void *, int *line, int *col);
+
+struct port {
+  port_getc *pgetc;
+  port_ungetc *pungetc;
+  port_putc *pputc;
+  port_close *pclose;
+  port_tell *ptell;
+  void *underlying;
+};
+
+static int getc_(struct port *p) { return p->pgetc(p->underlying); }
+static int putc_(struct port *p, int ch) { return p->pputc(p->underlying, ch); }
+static int ungetc_(struct port *p, int ch) {
+  return p->pungetc(p->underlying, ch);
+}
+static int close_(struct port *p) { return p->pclose(p->underlying); }
+static int tell_(struct port *p, int *line, int *col) {
+  return p->ptell(p->underlying, line, col);
+}
+
+static int file_getc(void *data) { return fgetc((FILE *)data); }
+static int file_putc(void *data, int ch) { return fputc(ch, (FILE *)data); }
+static int file_ungetc(void *data, int ch) { return ungetc(ch, (FILE *)data); }
+static int file_close(void *data) { return fclose((FILE *)data); }
+static int64_t file_tell(void *data, int *line, int *col) {
+  if (line != NULL) { *line = -1; }
+  if (col != NULL) { *col = -1; }
+  return ftell((FILE *)data);
+}
+
 static int
-eatwhile(FILE *in, const char *skip)
+eatwhile(struct port *in, const char *skip)
 {
   int ch;
   do {
-    ch = fgetc(in);
+    ch = getc_(in);
+    /* update port's line, col */
   } while (ch && strchr(skip, ch) && ch != EOF);
   return ch;
 }
 
 static int
-skipuntil(FILE *in, const char *stop)
+skipuntil(struct port *in, const char *stop)
 {
   int ch;
   do {
-    ch = fgetc(in);
+    ch = getc_(in);
+    /* update port's line, col */
   } while (ch && !strchr(stop, ch) && ch != EOF);
   return ch;
 }
 
-static cell_t *
-trynumber(surd_t *s, const char *buf, int bufi)
+/* return 0 error, 1 for int, 2 for float */
+static int
+trynumber(const char *buf, int bufi, long int *iout, double *flout)
 {
   char *endres;
   long int intres;
@@ -476,11 +514,8 @@ trynumber(surd_t *s, const char *buf, int bufi)
         exit(1);
       }
     }
-    cell_t *fix = surd_new_cell(s);
-    if (fix != s->nil) {
-      surd_num_init(s, fix, intres);
-      return fix;
-    }
+    *iout = intres;
+    return 1;
   }
   /* Fall through, it's not an int */
 
@@ -503,20 +538,18 @@ trynumber(surd_t *s, const char *buf, int bufi)
       fprintf(stderr, "floats are not implemented yet.\n");
       exit(1);
     }
-  }
-  /* Fall through, it's not a float, either */
 
-  ptrdiff_t n = end - buf;
-  cell_t *sym = surd_internn(s, buf, n);
-  return sym;
+    *flout = flores;
+    return 2;
+  }
+  return 0;
 }
 
-static cell_t *readlist_(surd_t *s, FILE *in);
+static cell_t *readlist_(surd_t *s, struct port *in);
 
 static cell_t *
-read_(surd_t *s, FILE *in)
+read_(surd_t *s, struct port *in)
 {
-
   for (;;) {
     int c = eatwhile(in, READ_WHITESPACE);
     switch (c) {
@@ -524,14 +557,14 @@ read_(surd_t *s, FILE *in)
       return NULL;
     case ';':
       c = skipuntil(in, "\n");
-      ungetc(c, in);
+      ungetc_(in, c);
       continue;
     case ')':
       fprintf(stderr, "read closing brace without open");
       exit(1);
     case '\'': {// quote
       cell_t *sym = surd_internn(s, "quote", 5);
-      cell_t *tmp = surd_read(s, in);
+      cell_t *tmp = read_(s, in);
       cell_t *tmp2 = surd_cons(s, tmp, s->nil);
       return surd_cons(s, sym, tmp2);
     }
@@ -547,27 +580,46 @@ read_(surd_t *s, FILE *in)
           exit(1);
         }
         buf[bufi++] = c;
-        c = fgetc(in);
+        c = getc_(in);
       } while (c && c != EOF && !strchr(READ_DELIMS, c));
       buf[bufi] = '\0';
-      ungetc(c, in);
+      ungetc_(in, c);
       if (bufi == 1 && strchr("-+", buf[0])) { return surd_internn(s, buf, 1); }
-      return trynumber(s, buf, bufi);
+      long int intres = 0;
+      double flores = 0.0;
+      switch (trynumber(buf, bufi, &intres, &flores)) {
+      case 0: /* not a number, symbol */
+        return surd_internn(s, buf, bufi);
+      case 1: /* int */
+        {
+          cell_t *tmp = surd_new_cell(s);
+          surd_num_init(s, tmp, intres);
+          return tmp;
+        }
+      case 2: /* float */
+        fprintf(stderr, "error: unsupported float");
+        exit(1);
+      default:
+        fprintf(stderr, "error: trynumber returned bad\n");
+        exit(1);
+      }
     }
     } /* end switch */
   }
-  return NULL;
 
+  fprintf(stderr, "read_ should never reach this\n");
+  exit(1);
+  return NULL;
 #undef SYMBUF_LEN
 }
 
 static cell_t *
-readlist_(surd_t *s, FILE *in)
+readlist_(surd_t *s, struct port *in)
 {
   int c = eatwhile(in, READ_WHITESPACE);
   if (c == ')') { return s->nil; }
   if (c == EOF) { return s->eof; }
-  ungetc(c, in);
+  ungetc_(in, c);
   cell_t *obj = read_(s, in);
   cell_t *list = readlist_(s, in);
   return surd_cons(s, obj, list);
@@ -581,7 +633,14 @@ cell_t *
 surd_read(surd_t *s, FILE *in)
 {
   cell_t *tmp;
-  tmp = read_(s, in);
+  struct port p;
+  p.pgetc = file_getc;
+  p.pungetc = file_ungetc;
+  p.pputc = file_putc;
+  p.pclose = file_close;
+  p.ptell = file_tell;
+  p.underlying = in;
+  tmp = read_(s, &p);
   return tmp;
 }
 
