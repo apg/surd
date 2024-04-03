@@ -184,7 +184,7 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
 {
   cell_t *symbol = surd_car(s, surd_cdr(s, exp));
   cell_t *value = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
-  cell_t *evaled;
+  cell_t *evaled = s->nil;
 
   // TODO: check arity!
   if (ISSYM(symbol)) {
@@ -194,9 +194,10 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
   }
   else {
     fprintf(stderr, "error: def expected symbol as second argument\n");
+    exit(1);
   }
 
-  return s->nil;
+  return evaled;
 }
 
 
@@ -667,6 +668,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
         }
         else {
           fprintf(stderr, "error: lam requires at least 2 arguments\n");
+          exit(1);
         }
       }
       else if (car == surd_intern(s, "def")) {
