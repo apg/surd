@@ -1,3 +1,6 @@
+#include <assert.h>
+#include <limits.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,74 +8,64 @@
 #include <gc.h>
 #include "surd.h"
 
-#include "primitives.h"
-
 #define _PRE_INTERNED_SYMBOLS_SIZE 4
-static char *_symbols_to_intern[] = {
-  "quote", "if", "fn", "def"
+static const char *_symbols_to_intern[] = {
+  "quote", "if", "lam", "def"
 };
 
-static inline int
-_is_initial(int c) {
-  return (isalpha(c) || \
-          c == '-' || c == '+' ||               \
-          c == '*' || c == '/' ||               \
-          c == '>' || c == '<' ||               \
-          c == '=' || c == '$' ||               \
-          c == '!' || c == '%' ||               \
-          c == '_' || c == '~' ||               \
-          c == '^' || c == '|' ||               \
-          c == '&' ||                           \
-          c == '?' || c == '.');
-}
+enum SURD_PRIMITIVES {
+  PRIM_CONS,
+  PRIM_FIRST,
+  PRIM_REST,
+  PRIM_NTH,
+  PRIM_CONSP,
+  PRIM_NILP,
+  PRIM_EOFP,
+  PRIM_FIXNUMP,
+  PRIM_SYMBOLP,
+  PRIM_PROCEDUREP,
+  PRIM_CLOSUREP,
+  PRIM_FOREIGNP,
+  PRIM_PLUS,
+  PRIM_MINUS,
+  PRIM_MULT,
+  PRIM_DIV,
+  PRIM_MOD,
+  PRIM_LT,
+  PRIM_EQ,
+  PRIM_READ,
+  PRIM_WRITE,
+  PRIM_OPEN,
+  PRIM_GETBYTE,
+  PRIM_PUTBYTE
+};
 
-static inline int
-_is_sym_char(int c)
-{
-  return (_is_initial(c) || isdigit(c) || c == '\'');
-}
-
-static inline int
-_is_delim(int c)
-{
-  return (c == '(' || c == ')' || c == ';' || isspace(c));
-}
-
-inline cell_t *
+cell_t *
 surd_car(surd_t *s, cell_t *c)
 {
-  if (ISCONS(c)) {
-    return CAR(c);
-  }
+  if (ISCONS(c)) { return CAR(c); }
+  /* TODO: error here! */
   return s->nil;
 }
 
-inline cell_t *
+cell_t *
 surd_cdr(surd_t *s, cell_t *c)
 {
-  if (ISCONS(c)) {
-    return CDR(c);
-  }
+  if (ISCONS(c)) { return CDR(c); }
+  /* TODO: error here! */
   return s->nil;
 }
 
 static int
-_symbol_position(surd_t *s, char *sym)
+_symbol_position(surd_t *s, const char *sym)
 {
-  int i;
-  for (i = 0; i < s->symbol_table_index; i++) {
-    if (s->symbol_table[i].name) {
-      if (strncmp(s->symbol_table[i].name, sym, strlen(s->symbol_table[i].name)) == 0) {
-        return i;
-      }
-    }
-    else {
-      break;
+  for (int i = 0; i < s->symbol_table_index; i++) {
+    if (strcmp(s->symbol_table[i].name, sym) == 0) {
+      return i;
     }
   }
   return -1;
 }
-
 
 static cell_t *
 _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
@@ -216,6 +209,7 @@ surd_init(surd_t *s, int hs, int ss)
   s->symbol_table_index = 0;
   s->symbol_table_size = ss;
   s->nil = (cell_t *)0;
+  s->eof = (cell_t *)1;
 
   memset(s->symbol_table, 0, sizeof(*s->symbol_table) * ss);
 
@@ -227,43 +221,72 @@ surd_init(surd_t *s, int hs, int ss)
     surd_intern(s, _symbols_to_intern[i]);
   }
 
-  surd_install_primitive(s, "cons", surd_p_cons, 2);
-  surd_install_primitive(s, "first", surd_p_first, 1);
-  surd_install_primitive(s, "rest", surd_p_rest, 1);
+  s->t = surd_internn(s, "true", 4);
 
-  surd_install_primitive(s, "cons?", surd_p_consp, 1);
-  surd_install_primitive(s, "fixnum?", surd_p_fixnump, 1);
-  surd_install_primitive(s, "symbol?", surd_p_symbolp, 1);
-  surd_install_primitive(s, "nil?", surd_p_nilp, 1);
-  surd_install_primitive(s, "procedure?", surd_p_procedurep, 1);
-  surd_install_primitive(s, "closure?", surd_p_closurep, 1);
+  cell_t *sym, *prim;
 
-  surd_install_primitive(s, "+", surd_p_plus, -1);
-  surd_install_primitive(s, "-", surd_p_minus, -1);
-  surd_install_primitive(s, "*", surd_p_mult, -1);
-  surd_install_primitive(s, "/", surd_p_div, -1);
-  surd_install_primitive(s, "%", surd_p_mod, -1);
+#define INSTALL_PRIMITIVE(NAME, NUM, ARITY) \
+  sym = surd_intern(s, NAME); \
+  prim = surd_new_cell(s); \
+  if (prim != s->nil) { \
+    prim->flags = TPRIMITIVE; \
+    prim->_value.primitive.arity = ARITY; \
+    prim->_value.primitive.num = NUM; \
+    s->top_env = _env_insert(s, s->top_env, sym, prim); \
+  } \
+  else { \
+    fprintf(stderr, "error: out of memory installing primitive\n"); \
+    exit(1);                                                       \
+  }
 
-  surd_install_primitive(s, ">", surd_p_gt, 2);
-  surd_install_primitive(s, "<", surd_p_lt, 2);
-  surd_install_primitive(s, "=", surd_p_eq, 2);
-  surd_install_primitive(s, ">=", surd_p_ge, 2);
-  surd_install_primitive(s, "<=", surd_p_le, 2);
+  INSTALL_PRIMITIVE("cons", PRIM_CONS, 2);
+  INSTALL_PRIMITIVE("first", PRIM_FIRST, 1);
+  INSTALL_PRIMITIVE("rest", PRIM_REST, 1);
+  INSTALL_PRIMITIVE("nth", PRIM_NTH, 2);
 
-  surd_install_primitive(s, "read", surd_p_read, 0);
-  surd_install_primitive(s, "write", surd_p_write, -1);
-  surd_install_primitive(s, "print-symbols", surd_p_symbols, -1);
+  INSTALL_PRIMITIVE("cons?", PRIM_CONSP, 1);
+  INSTALL_PRIMITIVE("nil?", PRIM_NILP, 1);
+  INSTALL_PRIMITIVE("eof?", PRIM_EOFP, 1);
+  INSTALL_PRIMITIVE("fixnum?", PRIM_FIXNUMP, 1);
+  INSTALL_PRIMITIVE("symbol?", PRIM_SYMBOLP, 1);
+  INSTALL_PRIMITIVE("procedure?", PRIM_PROCEDUREP, 1);
+  INSTALL_PRIMITIVE("closure?", PRIM_CLOSUREP, 1);
+  INSTALL_PRIMITIVE("foreign?", PRIM_FOREIGNP, 1);
+
+  INSTALL_PRIMITIVE("+", PRIM_PLUS, 2);
+  INSTALL_PRIMITIVE("-", PRIM_MINUS, 2);
+  INSTALL_PRIMITIVE("*", PRIM_MULT, 2);
+  INSTALL_PRIMITIVE("/", PRIM_DIV, 2);
+  INSTALL_PRIMITIVE("%", PRIM_MOD, 2);
+
+  INSTALL_PRIMITIVE("<", PRIM_LT, 2);
+  INSTALL_PRIMITIVE("=", PRIM_EQ, 2);
+
+  INSTALL_PRIMITIVE("read", PRIM_READ, 1);
+  INSTALL_PRIMITIVE("write", PRIM_WRITE, 2);
+  INSTALL_PRIMITIVE("open", PRIM_OPEN, 2);
+  INSTALL_PRIMITIVE("get-byte", PRIM_GETBYTE, 1);
+  INSTALL_PRIMITIVE("put-byte", PRIM_PUTBYTE, 2);
+
+#undef INSTALL_PRIMITIVE
+}
+
+cell_t *
+surd_new_cell(surd_t *s)
+{
+  return GC_malloc(sizeof(cell_t));
 }
 
 void
 surd_destroy(surd_t *s)
 {
+  /* XXX: Who cares about real memory management? :) */
   if (s->symbol_table) {
     s->symbol_table = NULL;
     s->symbol_table_size = 0;
     s->symbol_table_index = 0;
   }
-  /* need to reclaim these--this is a memleak */
+
   s->env = NULL;
 }
 
@@ -275,7 +298,13 @@ surd_num_init(surd_t *s, cell_t *c, int value)
 }
 
 cell_t *
-surd_intern(surd_t *s, char *str)
+surd_intern(surd_t *s, const char *str)
+{
+  return surd_internn(s, str, strlen(str));
+}
+
+cell_t *
+surd_internn(surd_t *s, const char *str, size_t n)
 {
   cell_t *c;
   int i, newsize;
@@ -329,15 +358,15 @@ surd_intern(surd_t *s, char *str)
 }
 
 void
-surd_install_primitive(surd_t *s, char *name,
-                       cell_t *(*func)(surd_t *, cell_t *), int arity)
+surd_install_foreign(surd_t *s, const char *name,
+                     cell_t *(*func)(surd_t *, cell_t *), int arity)
 {
   cell_t *sym = surd_intern(s, name);
   cell_t *prim = surd_new_cell(s);
   if (prim != s->nil) {
-    prim->flags = TPRIMITIVE;
-    prim->_value.primitive.arity = arity;
-    prim->_value.primitive.func = func;
+    prim->flags = TFOREIGN;
+    prim->_value.foreign.arity = arity;
+    prim->_value.foreign.cfunc = func;
     s->top_env = _env_insert(s, s->top_env, sym, prim);
   }
   else {
@@ -345,6 +374,8 @@ surd_install_primitive(surd_t *s, char *name,
     exit(1);
   }
 }
+
+
 
 cell_t *
 surd_cons(surd_t *s, cell_t *car, cell_t *cdr)
@@ -394,184 +425,162 @@ surd_make_closure(surd_t *s, cell_t *code, cell_t *env)
   return cls;
 }
 
-static cell_t *_read(surd_t *s, FILE *in);
+#define READ_WHITESPACE " \t\n\r"
+#define READ_DELIMS " \t\r\n()[]{};#"
 
-static cell_t *
-_read_fixnum(surd_t *s, FILE *in, int sign)
+static int
+eatwhile(FILE *in, const char *skip)
 {
-  cell_t *fix;
-  int c, i = 0;
-
-  c = fgetc(in);
-  while (isdigit(c)) {
-    i = (i * 10) + (c - '0');
-    c = fgetc(in);
-  }
-  ungetc(c, in);
-
-  fix = surd_new_cell(s);
-  if (fix != s->nil) {
-    surd_num_init(s, fix, i * sign);
-    return fix;
-  }
-
-  fprintf(stderr, "error: Couldn't read fixnum\n");
-  exit(1);
-}
-
-
-static void
-_eat_comment(FILE *in)
-{
-  int c;
+  int ch;
   do {
-    c = fgetc(in);
-  } while(c != '\r' && c != '\n' && c != EOF);
+    ch = fgetc(in);
+  } while (ch && strchr(skip, ch) && ch != EOF);
+  return ch;
+}
+
+static int
+skipuntil(FILE *in, const char *stop)
+{
+  int ch;
+  do {
+    ch = fgetc(in);
+  } while (ch && !strchr(stop, ch) && ch != EOF);
+  return ch;
 }
 
 static cell_t *
-_read_symbol(surd_t *s, FILE *in)
+trynumber(surd_t *s, const char *buf, int bufi)
 {
+  char *endres;
+  long int intres;
+  double flores;
+  const char *end = buf+bufi;
 
-  cell_t *sym;
-  char buffer[128];
-  int c, i = 0;
+  /* try int first. */
+  intres = strtol(buf, &endres, 0);
+  if (end == endres && *end == '\0') {
+    /* int was successful. Does it overflow? */
+    if ((errno == ERANGE && (intres == LONG_MAX || intres == LONG_MIN))) {
 
-  c = fgetc(in);
-
-  if (_is_initial(c)) {
-    buffer[i++] = (char)c;
-    buffer[i] = 0;
-  }
-  else {
-    fprintf(stderr, "error: not a symbol: invalid first char(%d) '%c' \n", c, (char)c);
-    exit(1);
-  }
-
-  for (;;) {
-    c = fgetc(in);
-    if (_is_delim(c)) {
-      ungetc(c, in);
-      goto done;
+      if (intres > (LONG_MAX >> 1)) {
+        fprintf(stderr, "integer overflow\n");
+        exit(1);
+      }
+      if (intres < (LONG_MIN >> 1)) {
+        fprintf(stderr, "integer underflow\n");
+        exit(1);
+      }
+      if (errno != 0 && intres == 0) {
+        fprintf(stderr, "unknown integer error\n");
+        exit(1);
+      }
     }
-    else if (_is_sym_char(c)) {
-      buffer[i++] = (char)c;
-      buffer[i] = 0;
+    cell_t *fix = surd_new_cell(s);
+    if (fix != s->nil) {
+      surd_num_init(s, fix, intres);
+      return fix;
+    }
+  }
+  /* Fall through, it's not an int */
+
+  flores = strtod(buf, &endres);
+  if (end == endres && *end == '\0') {
+    /* flores == 0 iff flores is not greater than or equal to 0
+     * -Wfloat-equal will complain if we don't do it this way.
+     */
+    if (errno == ERANGE) {
+      if (!(flores > 0 || flores < 0)) {
+        fprintf(stderr, "double underflow\n");
+        exit(1);
+      }
+      else {
+        fprintf(stderr, "double overflow\n");
+        exit(1);
+      }
     }
     else {
-      fprintf(stderr, "error: '%c' not a symbol character\n", (char)c);
+      fprintf(stderr, "floats are not implemented yet.\n");
       exit(1);
     }
   }
- done:
-  sym = surd_intern(s, buffer);
+  /* Fall through, it's not a float, either */
 
+  ptrdiff_t n = end - buf;
+  cell_t *sym = surd_internn(s, buf, n);
   return sym;
 }
 
-static cell_t *
-_read_list(surd_t *s, FILE *in)
-{
-  cell_t *first, *next, *next_next, *tmp;
-  int c;
-
-  tmp = _read(s, in);
-  if (!tmp) {
-    fgetc(in); // TODO we really need "next_token" instead of fgetc
-    return s->nil;
-  }
-
-
-  /* TODO: left off here! */
-  first = surd_cons(s, tmp, s->nil);
-  next = first;
-
-  for (;;) {
-    tmp = _read(s, in);
-    if (!tmp) { // got an end delimiter, so we're done
-      goto done;
-    }
-    next_next = surd_cons(s, tmp, s->nil);
-    next->_value.cons.cdr = next_next;
-    next = next_next;
-  }
-
- done:
-  c = fgetc(in);
-  if (c != ')') {
-    fprintf(stderr, "error: expected ')', but found '%c'\n", c);
-    exit(1);
-  }
-  return first;
-}
+static cell_t *readlist_(surd_t *s, FILE *in);
 
 static cell_t *
-_read(surd_t *s, FILE *in)
+read_(surd_t *s, FILE *in)
 {
-  int c, l;
-  cell_t *sym, *tmp, *tmp2, *ret;
+
   for (;;) {
-    c = fgetc(in);
+    int c = eatwhile(in, READ_WHITESPACE);
     switch (c) {
-    case '\t':
-    case '\n':
-    case '\r':
-    case ' ':
-      continue;
-
-    case ';':
-      _eat_comment(in);
-      continue;
-
-    case '0':
-    case '1':
-    case '2':
-    case '3':
-    case '4':
-    case '5':
-    case '6':
-    case '7':
-    case '8':
-    case '9':
-      ungetc(c, in);
-      return _read_fixnum(s, in, 1);
-
-    case '\'': // quote
-      sym = surd_intern(s, "quote");
-      tmp = surd_read(s, in);
-      tmp2 = surd_cons(s, tmp, s->nil);
-      ret = surd_cons(s, sym, tmp2);
-      return ret;
-
-    case '(':
-      return _read_list(s, in);
-
-    case ')':
-      ungetc(c, in);
+    case EOF:
       return NULL;
-    case '-':
-    case '+':
-      l = fgetc(in);
-      ungetc(l, in);
-      if (isdigit(l)) {
-        return _read_fixnum(s, in, c == '-' ? -1: 1);
-      }
-    default:
-      if (c == EOF) {
-        return NULL;
-      }
+    case ';':
+      c = skipuntil(in, "\n");
       ungetc(c, in);
-      return _read_symbol(s, in);
+      continue;
+    case ')':
+      fprintf(stderr, "read closing brace without open");
+      exit(1);
+    case '\'': {// quote
+      cell_t *sym = surd_internn(s, "quote", 5);
+      cell_t *tmp = surd_read(s, in);
+      cell_t *tmp2 = surd_cons(s, tmp, s->nil);
+      return surd_cons(s, sym, tmp2);
     }
+    case '(':
+      return readlist_(s, in);
+    default: {
+#define SYMBUF_LEN 256
+      char buf[SYMBUF_LEN];
+      int bufi = 0;
+      do {
+        if (bufi == SYMBUF_LEN) {
+          fprintf(stderr, "symbol too long\n");
+          exit(1);
+        }
+        buf[bufi++] = c;
+        c = fgetc(in);
+      } while (c && c != EOF && !strchr(READ_DELIMS, c));
+      buf[bufi] = '\0';
+      ungetc(c, in);
+      if (bufi == 1 && strchr("-+", buf[0])) { return surd_internn(s, buf, 1); }
+      return trynumber(s, buf, bufi);
+    }
+    } /* end switch */
   }
   return NULL;
+
+#undef SYMBUF_LEN
 }
+
+static cell_t *
+readlist_(surd_t *s, FILE *in)
+{
+  int c = eatwhile(in, READ_WHITESPACE);
+  if (c == ')') { return s->nil; }
+  if (c == EOF) { return s->eof; }
+  ungetc(c, in);
+  cell_t *obj = read_(s, in);
+  cell_t *list = readlist_(s, in);
+  return surd_cons(s, obj, list);
+}
+
+#undef READ_DELIMS
+#undef READ_WHITESPACE
+
 
 cell_t *
 surd_read(surd_t *s, FILE *in)
 {
   cell_t *tmp;
-  tmp = _read(s, in);
+  tmp = read_(s, in);
   return tmp;
 }
 
@@ -609,10 +618,10 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
     fprintf(out, ")");
   }
   else if (ISCLOSURE(exp)) {
-    fprintf(out, "<#closure: %p>", exp);
+    fprintf(out, "<#closure: %p>", (void *)exp);
   }
   else if (ISPRIM(exp)) {
-    fprintf(out, "<#primitive: %p>", exp);
+    fprintf(out, "<#primitive: %p>", (void *)exp);
   }
   else {
     fprintf(out, "umm...");
@@ -622,17 +631,14 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
 void
 surd_write(surd_t *s, FILE *out, cell_t *exp)
 {
-  // not correct, but we'll take it for now.
+  /* XXX: not correct, but we'll take it for now. */
   surd_display(s, out, exp);
 }
 
 cell_t *
 surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
 {
-  cell_t *car, *tmp, *tmp2;
-
   for (;;) {
-    //  surd_display(s, stdout, exp);
     if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {
       return exp;
     }
@@ -640,9 +646,9 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
       return _env_lookup(s, env, exp);
     }
     else if (ISCONS(exp)) {
-      car = CAR(exp);
+      cell_t *car = CAR(exp);
       if (car == surd_intern(s, "quote")) {
-        tmp = CDR(exp);
+        cell_t *tmp = CDR(exp);
         if (ISCONS(tmp)) {
           return CAR(tmp);
         }
@@ -655,12 +661,12 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
       else if (car == surd_intern(s, "if")) {
         exp = _eval_if(s, exp, env);
       }
-      else if (car == surd_intern(s, "fn")) {
+      else if (car == surd_intern(s, "lam")) {
         if (surd_list_length(s, exp) > 2) {
           return surd_make_closure(s, exp, env);
         }
         else {
-          fprintf(stderr, "error: fn requires at least 2 arguments\n");
+          fprintf(stderr, "error: lam requires at least 2 arguments\n");
         }
       }
       else if (car == surd_intern(s, "def")) {
@@ -674,10 +680,10 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
       }
       else {
         // apply
-        tmp = surd_eval(s, car, env, 0);
+        cell_t *tmp = surd_eval(s, car, env, 0);
         // TODO: the closure path can be optimized into the loop
         if (ISPRIM(tmp) || ISCLOSURE(tmp)) {
-          tmp2 = surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
+          cell_t *tmp2 = surd_apply(s, tmp, _eval_list(s, CDR(exp), env));
           return tmp2;
         }
         else {
@@ -687,24 +693,261 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
       }
     }
   }
-
   return s->nil;
 }
 
 cell_t *
 surd_apply(surd_t *s, cell_t *closure, cell_t *args)
 {
-  cell_t *nenv, *code, *tmp;
-  int carity;
   if (closure == NULL && closure == s->nil) {
     fprintf(stderr, "error: attempt to apply a null value\n");
     exit(1);
   }
   if (ISPRIM(closure)) {
-    carity = surd_list_length(s, args);
+    int carity = surd_list_length(s, args);
     if (carity == closure->_value.primitive.arity ||
         closure->_value.primitive.arity == -1) {
-      return (closure->_value.primitive.func)(s, args);
+
+      switch (closure->_value.primitive.num) {
+      case PRIM_CONS: {
+        cell_t *c = surd_cons(s, CAR(args),
+                              CAR(CDR(args)));
+        if (c == s->nil) {
+          fprintf(stderr, "error: out of memory in primitive cons\n");
+          exit(1);
+        }
+        return c;
+      }
+      case PRIM_FIRST: {
+        cell_t *arg1 =CAR(args);
+        if (ISCONS(arg1)) {
+          return CAR(arg1);
+        }
+        else {
+          fprintf(stderr, "error: cons required for primitve first\n");
+          exit(1);
+        }
+      }
+      case PRIM_REST: {
+        cell_t *arg1 =CAR(args);
+        if (ISCONS(arg1)) {
+          return CDR(arg1);
+        }
+        else {
+          fprintf(stderr, "error: cons required for primitve rest\n");
+          exit(1);
+        }
+      }
+      case PRIM_NTH: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISCONS(arg2) && ISFIXNUM(arg1)) {
+          cell_t *current = arg2;
+          for (int i = arg1->_value.num; i > 0; i--) {
+            if (current == s->nil) {
+              fprintf(stderr, "error: nth ran out of cells\n");
+              exit(1);
+            }
+            current = CDR(current);
+          }
+          if (current != s->nil) {
+            return CAR(current);
+          }
+          else {
+            fprintf(stderr, "error: nth ran out of cells\n");
+            exit(1);
+          }
+        }
+        else {
+          fprintf(stderr, "error: int and cons required for primitve nth\n");
+          exit(1);
+        }
+      }
+
+      case PRIM_CONSP: {
+        cell_t *arg1 = CAR(args);
+        if (ISCONS(arg1)) {
+          return s->t;
+        }
+        return s->nil;
+      }
+
+      case PRIM_NILP: {
+        cell_t *arg1 = CAR(args);
+        if (arg1 == s->nil) {
+          return s->t;
+        }
+        return s->nil;
+      }
+      case PRIM_EOFP: {
+        cell_t *arg1 = CAR(args);
+        if (arg1 == s->eof) {
+          return s->t;
+        }
+        return s->nil;
+      }
+      case PRIM_FIXNUMP: {
+        cell_t *arg1 = CAR(args);
+        if (arg1 == s->nil) {
+          return s->t;
+        }
+        return s->nil;
+      }
+      case PRIM_SYMBOLP: {
+        cell_t *arg1 = CAR(args);
+        if (ISSYM(arg1)) {
+          return s->t;
+        }
+        return s->nil;
+      }
+      case PRIM_PROCEDUREP: {
+        cell_t *arg1 = CAR(args);
+        if (ISPRIM(arg1) || ISCLOSURE(arg1) || ISFOREIGN(arg1)) {
+          return s->t;
+        }
+        return s->nil;
+      }
+      case PRIM_CLOSUREP: {
+        cell_t *arg1 = CAR(args);
+        if (ISCLOSURE(arg1)) {
+          return s->t;
+        }
+        return s->nil;
+      }
+      case PRIM_FOREIGNP: {
+        cell_t *arg1 = CAR(args);
+        if (ISFOREIGN(arg1)) {
+          return s->t;
+        }
+        return s->nil;
+      }
+      case PRIM_PLUS: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
+          cell_t *tmp = surd_new_cell(s);
+          surd_num_init(s, tmp, arg1->_value.num + arg2->_value.num);
+          return tmp;
+        }
+        else {
+          fprintf(stderr, "attempt to add a non fixnum\n");
+          exit(1);
+        }
+      }
+      case PRIM_MINUS: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
+          cell_t *tmp = surd_new_cell(s);
+          surd_num_init(s, tmp, arg1->_value.num - arg2->_value.num);
+          return tmp;
+        }
+        fprintf(stderr, "attempt to subtract a non fixnum\n");
+        exit(1);
+      }
+      case PRIM_MULT: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
+          cell_t *tmp = surd_new_cell(s);
+          surd_num_init(s, tmp, arg1->_value.num * arg2->_value.num);
+          return tmp;
+        }
+        fprintf(stderr, "attempt to multiply a non fixnum\n");
+        exit(1);
+      }
+      case PRIM_DIV: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
+          if (arg2->_value.num == 0) {
+            fprintf(stderr, "attempt to divide by 0\n");
+            exit(1);
+          }
+          cell_t *tmp = surd_new_cell(s);
+          surd_num_init(s, tmp, arg1->_value.num / arg2->_value.num);
+          return tmp;
+        }
+        fprintf(stderr, "attempt to divide a non fixnum\n");
+        exit(1);
+      }
+      case PRIM_MOD: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
+          if (arg2->_value.num == 0) {
+            fprintf(stderr, "attempt to divide by 0\n");
+            exit(1);
+          }
+          cell_t *tmp = surd_new_cell(s);
+          surd_num_init(s, tmp, arg1->_value.num % arg2->_value.num);
+          return tmp;
+        }
+        fprintf(stderr, "attempt to mod a non fixnum\n");
+        exit(1);
+      }
+      case PRIM_LT: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
+          if (arg1->_value.num < arg2->_value.num) {
+            return s->t;
+          }
+          return s->nil;
+        }
+        fprintf(stderr, "attempt to compare a non fixnum\n");
+        exit(1);
+      }
+      case PRIM_EQ: {
+        cell_t *arg1 = CAR(args);
+        cell_t *arg2 = CAR(CDR(args));
+        if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
+          if (arg1->_value.num == arg2->_value.num) {
+            return s->t;
+          }
+          return s->nil;
+        }
+        else if (ISSYM(arg2) && ISSYM(arg1)) {
+          if (arg1->_value.num == arg2->_value.num) {
+            return s->t;
+          }
+          return s->nil;
+        }
+        else if (arg1 == arg2) {
+          return s->t;
+        }
+        return s->nil;
+      }
+
+      case PRIM_READ: {
+        fprintf(stderr, "read not implemented\n");
+        exit(1);
+      }
+
+      case PRIM_WRITE: {
+        fprintf(stderr, "write not implemented\n");
+        exit(1);
+      }
+
+      case PRIM_OPEN: {
+        fprintf(stderr, "open not implemented\n");
+        exit(1);
+      }
+
+      case PRIM_GETBYTE: {
+        fprintf(stderr, "get-byte not implemented\n");
+        exit(1);
+      }
+
+      case PRIM_PUTBYTE: {
+        fprintf(stderr, "put-byte not implemented\n");
+        exit(1);
+      }
+
+      default:
+        fprintf(stderr,"unknown primitive\n");
+        exit(1);
+      }
     }
     else {
       fprintf(stderr, "arity error: arity mismatch, "
@@ -714,11 +957,22 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
     }
   }
   else if (ISCLOSURE(closure)) {
-    code = closure->_value.cons.car;
-    nenv = closure->_value.cons.cdr;
+    cell_t *code = closure->_value.cons.car;
+    cell_t *nenv = closure->_value.cons.cdr;
     nenv = _env_extend(s, nenv, surd_car(s, surd_cdr(s, code)), args);
-    tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 1);
+    cell_t *tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 1);
     return tmp;
   }
   return s->nil;
+}
+
+cell_t *
+surd_load(surd_t *s, FILE *in)
+{
+  cell_t *tmp;
+  cell_t *last = s->nil;
+  while ((tmp = surd_read(s, in)) != NULL) {
+    last = surd_eval(s, tmp, s->env, 1);
+  }
+  return last;
 }

@@ -56,7 +56,7 @@ test_read_symbols(surd_t *s)
     "-",
     ".+",
     "*foo",
-    "*bar",
+    "*bar*",
     "*baz?",
     "baz?",
     "genius",

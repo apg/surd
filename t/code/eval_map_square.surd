@@ -1,0 +1,26 @@
+(def iota% (lam (n accum)
+   (if (= n 0)
+      accum
+      (iota% (- n 1) (cons n accum)))))
+
+(def iota (lam (n)
+  (iota% n '())))
+
+(def reverse% (lam (xs accum)
+  (if (nil? xs)
+      accum
+      (reverse% (rest xs) (cons (first xs) accum)))))
+
+(def reverse (lam (xs)
+   (reverse% xs '())))
+
+(def map% (lam (fn xs accum)
+   (if (nil? xs)
+       (reverse% accum '())
+       (map% fn (rest xs) (cons (fn (first xs)) accum)))))
+
+(def map (lam (fn xs)
+   (map% fn xs '()) '()))
+
+
+(map (lam (x) (* x x)) (iota 5000))

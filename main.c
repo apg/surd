@@ -17,24 +17,16 @@ repl(surd_t *s)
       printf("\n  #res:%d => ", lc);
       surd_display(s, stdout, cell);
       printf("\n");
-    } 
+    }
     else {
       exit(0);
     }
   }
 }
 
-static void 
-batch(surd_t *s, FILE *in)
-{
-  cell_t *tmp;
-  while ((tmp = surd_read(s, in)) != NULL) {
-    surd_eval(s, tmp, s->env, 1);
-  }
-}
 
 int
-main(int argc, char *argv[]) 
+main(int argc, char *argv[])
 {
   FILE *in;
   surd_t surd;
@@ -43,7 +35,7 @@ main(int argc, char *argv[])
   if (argc > 1) {
     in = fopen(argv[1], "r");
     if (in != NULL) {
-      batch(&surd, in);
+      surd_load(&surd, in);
       fclose(in);
     }
     else {
