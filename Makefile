@@ -15,7 +15,6 @@ OBJS=surd.o
 LINTABLES=surd.c\
 	surd.h
 
-
 surd-debug:
 	$(MAKE) DEBUG='-g' clean surd
 

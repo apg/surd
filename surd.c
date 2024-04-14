@@ -13,6 +13,73 @@ static const char *_symbols_to_intern[] = {
   "quote", "if", "lam", "def"
 };
 
+typedef struct symtab_entry symtab_entry_t;
+
+typedef enum {
+  TNIL=0x0,
+  TFIXNUM=0x1,
+  TSYMBOL=0x2,
+  TCONS=0x4,
+  TSTRING=0x8,
+  TCLOSURE=0x10, // env goes in cdr, code in car
+  TPRIMITIVE=0x20,
+  TFOREIGN=0x40,
+  TMACRO=0x80
+} type_t;
+
+#define TYPE_BITS 16
+
+#define TATOMIC (TFIXNUM | TSYMBOL | TNIL)
+
+#define TYPE(c) (c->flags & ((1 << (TYPE_BITS+1)) - 1))
+
+struct cell {
+  unsigned int flags;
+  union {
+    int num;
+    struct cons {
+      cell_t *car;
+      cell_t *cdr;
+    } cons;
+    struct primitive {
+      int arity;
+      int num;
+    } primitive;
+    struct foreign {
+      int arity;
+      cell_t *(*cfunc)(surd_t *, cell_t *args);
+    } foreign;
+  } _value;
+};
+
+struct symtab_entry {
+  char *name;
+  cell_t *symbol;
+};
+
+struct surd {
+  /* Argument stack: */
+  cell_t **args;
+  int args_size;
+  int args_index;
+
+  /* Symbol table: symbols use cells as well as external memory
+     created on the fly via malloc
+  */
+  struct symtab_entry *symtab;
+  int symtab_size;
+  int symtab_index;
+
+  /* initial eval environment */
+  cell_t *env;
+
+  /* Top level environment */
+  cell_t *top_env;
+  cell_t *t;
+  cell_t *nil;
+  cell_t *eof;
+};
+
 enum SURD_PRIMITIVES {
   PRIM_CONS,
   PRIM_FIRST,
@@ -40,12 +107,29 @@ enum SURD_PRIMITIVES {
   PRIM_PUTBYTE
 };
 
+#define ISNIL(c) (c == (cell_t *)0)
+#define ISFIXNUM(c) (c != NULL && !ISNIL(c) && c->flags & TFIXNUM)
+#define ISSYM(c) (c != NULL && !ISNIL(c) && c->flags & TSYMBOL)
+#define ISCONS(c) (c != NULL && !ISNIL(c) && c->flags & TCONS)
+#define ISCLOSURE(c) (c != NULL && !ISNIL(c) && c->flags & TCLOSURE)
+#define ISPRIM(c) (c != NULL && !ISNIL(c) && c->flags & TPRIMITIVE)
+#define ISFOREIGN(c) (c != NULL && !ISNIL(c) && c->flags & TFOREIGN)
+
+#define CAR(c) (c->_value.cons.car)
+#define CDR(c) (c->_value.cons.cdr)
+
 cell_t *
 surd_car(surd_t *s, cell_t *c)
 {
   if (ISCONS(c)) { return CAR(c); }
   /* TODO: error here! */
   return s->nil;
+}
+
+cell_t *
+surd_env(surd_t *s)
+{
+  return s->env;
 }
 
 cell_t *
@@ -59,8 +143,8 @@ surd_cdr(surd_t *s, cell_t *c)
 static int
 _symbol_position(surd_t *s, const char *sym)
 {
-  for (int i = 0; i < s->symbol_table_index; i++) {
-    if (strcmp(s->symbol_table[i].name, sym) == 0) {
+  for (int i = 0; i < s->symtab_index; i++) {
+    if (strcmp(s->symtab[i].name, sym) == 0) {
       return i;
     }
   }
@@ -88,7 +172,7 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
     }
   }
 
-  fprintf(stderr, "error: symbol %s not found\n", s->symbol_table[sym->_value.num].name);
+  fprintf(stderr, "error: symbol %s not found\n", s->symtab[sym->_value.num].name);
   fflush(stderr);
   exit(1);
 }
@@ -201,18 +285,26 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
 }
 
 
-void
-surd_init(surd_t *s, int hs, int ss)
+#define DEFAULT_SYMTAB_SIZE 256
+
+surd_t *
+surd_init(void)
 {
   int i;
-  s->symbol_table = GC_malloc(sizeof(*s->symbol_table) * ss);
 
-  s->symbol_table_index = 0;
-  s->symbol_table_size = ss;
+  surd_t *s = GC_malloc(sizeof(*s));
+  if (s == NULL) {
+    return NULL;
+  }
+
+  s->symtab = GC_malloc(sizeof(*s->symtab) * DEFAULT_SYMTAB_SIZE);
+
+  s->symtab_index = 0;
+  s->symtab_size = DEFAULT_SYMTAB_SIZE;
   s->nil = (cell_t *)0;
   s->eof = (cell_t *)1;
 
-  memset(s->symbol_table, 0, sizeof(*s->symbol_table) * ss);
+  memset(s->symtab, 0, sizeof(*s->symtab) * DEFAULT_SYMTAB_SIZE);
 
   s->env = s->nil;
   s->top_env = s->nil;
@@ -270,6 +362,8 @@ surd_init(surd_t *s, int hs, int ss)
   INSTALL_PRIMITIVE("put-byte", PRIM_PUTBYTE, 2);
 
 #undef INSTALL_PRIMITIVE
+
+  return s;
 }
 
 cell_t *
@@ -282,10 +376,10 @@ void
 surd_destroy(surd_t *s)
 {
   /* XXX: Who cares about real memory management? :) */
-  if (s->symbol_table) {
-    s->symbol_table = NULL;
-    s->symbol_table_size = 0;
-    s->symbol_table_index = 0;
+  if (s->symtab) {
+    s->symtab = NULL;
+    s->symtab_size = 0;
+    s->symtab_index = 0;
   }
 
   s->env = NULL;
@@ -313,20 +407,20 @@ surd_internn(surd_t *s, const char *str, size_t n)
 
   i = _symbol_position(s, str);
   if (i >= 0) {
-    return s->symbol_table[i].symbol;
+    return s->symtab[i].symbol;
   }
 
-  i = s->symbol_table_index;
+  i = s->symtab_index;
   // didn't find it, so put the index at the end
 
-  if (i < s->symbol_table_size) {
+  if (i < s->symtab_size) {
     c = surd_new_cell(s);
     if (c != s->nil) {
       c->flags = TSYMBOL;
       c->_value.num = i;
-      s->symbol_table[i].name = strndup(str, slen);
-      s->symbol_table[i].symbol = c;
-      s->symbol_table_index++;
+      s->symtab[i].name = strndup(str, slen);
+      s->symtab[i].symbol = c;
+      s->symtab_index++;
     }
     else {
       fprintf(stderr, "error: out of memory in intern()\n");
@@ -334,16 +428,16 @@ surd_internn(surd_t *s, const char *str, size_t n)
     }
   }
   else {
-    newsize = sizeof(*s->symbol_table) * s->symbol_table_size * 2;
-    s->symbol_table = realloc(s->symbol_table, newsize);
-    if (s->symbol_table) {
+    newsize = sizeof(*s->symtab) * s->symtab_size * 2;
+    s->symtab = realloc(s->symtab, newsize);
+    if (s->symtab) {
       c = surd_new_cell(s);
       if (c != s->nil) {
         c->flags = TSYMBOL;
         c->_value.num = i;
-        s->symbol_table[i].name = strndup(str, slen);
-        s->symbol_table[i].symbol = c;
-        s->symbol_table_index++;
+        s->symtab[i].name = strndup(str, slen);
+        s->symtab[i].symbol = c;
+        s->symtab_index++;
       }
       else {
         fprintf(stderr, "error: out of memory in intern()\n");
@@ -657,7 +751,7 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
     fprintf(out, "%d", exp->_value.num);
   }
   else if (ISSYM(exp)) {
-    fprintf(out, "%s", s->symbol_table[exp->_value.num].name);
+    fprintf(out, "%s", s->symtab[exp->_value.num].name);
   }
   else if (ISCONS(exp)) {
     fprintf(out, "(");

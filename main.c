@@ -13,7 +13,7 @@ repl(surd_t *s)
     printf("surd: %d> ", lc);
     cell = surd_read(s, stdin);
     if (cell) {
-      cell = surd_eval(s, cell, s->env, 1);
+      cell = surd_eval(s, cell, surd_env(s), 1);
       printf("\n  #res:%d => ", lc);
       surd_display(s, stdout, cell);
       printf("\n");
@@ -29,13 +29,12 @@ int
 main(int argc, char *argv[])
 {
   FILE *in;
-  surd_t surd;
-  surd_init(&surd, 800, 2000);
+  surd_t *surd = surd_init();
 
   if (argc > 1) {
     in = fopen(argv[1], "r");
     if (in != NULL) {
-      surd_load(&surd, in);
+      surd_load(surd, in);
       fclose(in);
     }
     else {
@@ -44,7 +43,7 @@ main(int argc, char *argv[])
     }
   }
   else {
-    repl(&surd);
+    repl(surd);
   }
 
   return 0;
