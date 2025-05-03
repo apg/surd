@@ -19,11 +19,11 @@ test_eval_fact(surd_t *s)
   in = fopen("code/eval_fact.surd", "r");
   if (in) {
     c = surd_load(s, in);
-    IS(c != s->nil, "eval returned nil?");
-    while (c != s->nil) {
+    IS(!surd_is_nil(s, c), "eval returned nil?");
+    while (!surd_is_nil(s, c)) {
       IS(i < nums_to_check, "read more numbers than expected");
       current = surd_car(s, c);
-      IS(ISFIXNUM(current), "not a fixnum");
+      IS(surd_is_fixnum(s, current), "not a fixnum");
       ISEQ(current->_value.num, actual[i], "value not the same as actual");
       i++;
       c = surd_cdr(s, c);

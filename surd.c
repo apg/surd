@@ -514,17 +514,17 @@ surd_symbol_equal(surd_t *s, const cell_t *left, const cell_t *right)
   return 0;
 }
 
-int
-surd_is_null(surd_t *s, const cell_t *t)
-{
-  return s->nil == t;
-}
+int surd_is_true(surd_t *s, const cell_t *t) { return s->t == t; }
+int surd_is_nil(surd_t *s, const cell_t *t) { return s->nil == t; }
+int surd_is_eof(surd_t *s, const cell_t *t) { return s->eof == t; }
 
-int
-surd_is_true(surd_t *s, const cell_t *t)
-{
-  return s->t == t;
-}
+int surd_is_symbol(surd_t *s, const cell_t *t) { return ISSYM(t); }
+int surd_is_fixnum(surd_t *s, const cell_t *t) { return ISFIXNUM(t); }
+int surd_is_string(surd_t *s, const cell_t *t) { return ISSTR(t); }
+int surd_is_cons(surd_t *s, const cell_t *t) { return ISCONS(t); }
+int surd_is_closure(surd_t *s, const cell_t *t) { return ISCLOSURE(t); }
+int surd_is_primitive(surd_t *s, const cell_t *t) { return ISPRIM(t); }
+int surd_is_foreign(surd_t *s, const cell_t *t) { return ISFOREIGN(t); }
 
 
 void

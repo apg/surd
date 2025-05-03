@@ -13,7 +13,7 @@ test_read_nil(surd_t *s)
   in = fopen("code/reader_nil.surd", "r");
   if (in) {
     c = surd_read(s, in);
-    IS(c == s->nil, "read didn't return nil :(");
+    IS(surd_is_nil(s, c), "read didn't return nil :(");
     fclose(in);
   }
 }
@@ -34,11 +34,11 @@ test_read_fixnums(surd_t *s)
   in = fopen("code/reader_fixnums.surd", "r");
   if (in) {
     c = surd_read(s, in);
-    IS(c != s->nil, "read returned nil :(");
-    while (c != s->nil) {
+    IS(!surd_is_nil(s, c), "read returned nil :(");
+    while (!surd_is_nil(s, c)) {
       IS(i < nums_to_check, "read more numbers than expected");
       current = surd_car(s, c);
-      IS(ISFIXNUM(current), "not a fixnum");
+      IS(!surd_is_fixnum(s, current), "not a fixnum");
       ISEQ(current->_value.num, actual[i], "value not the same as actual");
       i++;
       c = surd_cdr(s, c);
@@ -62,12 +62,12 @@ test_read_strings(surd_t *s)
   in = fopen("code/reader_strings.surd", "r");
   if (in) {
     c = surd_read(s, in);
-    IS(c != s->nil, "read returned nil :(");
-    while (c != s->nil) {
+    IS(!surd_is_nil(s, c), "read returned nil :(");
+    while (!surd_is_nil(s, c)) {
       IS(i < strs_to_check, "read more strings than expected");
       current = surd_car(s, c);
-      IS(ISSTR(current), "not a string");
-      ISEQ(strcmp(actual[i], sym->_value.str.buffer) == 0, "value not same as actual");
+      IS(!surd_is_string(s, current), "not a string");
+      ISEQ(strcmp(actual[i], sym->_value.str.buffer), 0, "value not same as actual");
       i++;
       c = surd_cdr(s, c);
     }
@@ -101,12 +101,12 @@ test_read_symbols(surd_t *s)
   in = fopen("code/reader_symbols.surd", "r");
   if (in) {
     c = surd_read(s, in);
-    IS(c != s->nil, "read returned nil :(");
-    while (c != s->nil) {
+    IS(!surd_is_nil(s, c), "read returned nil :(");
+    while (!surd_is_nil(s, c)) {
       IS(i < syms_to_check, "read more symbols than expected");
       current = surd_car(s, c);
       sym = surd_intern(s, actual[i]);
-      IS(ISSYM(current), "not a symbol");
+      IS(surd_is_symbol(s, current), "not a symbol");
       ISEQ(current->_value.num, sym->_value.num, "value not the same as actual");
       i++;
       c = surd_cdr(s, c);
