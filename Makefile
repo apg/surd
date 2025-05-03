@@ -36,6 +36,17 @@ clean:
 lint:
 	cppcheck $(LINTABLES)
 
+bench: bench-map-square bench-fact
+
+bench-fact: surd
+	rm -f eval_map_square.log
+	for n in `seq 100`; do ./surd t/code/eval_fact.surd 2>&1 | awk '/ellapsed load time/ {print $$4}' >> eval_fact.log; done
+	ministat bench-baseline/eval_fact.log eval_fact.log
+
+bench-map-square: surd
+	for n in `seq 100`; do ./surd t/code/eval_map_square.surd 2>&1 | awk '/ellapsed load time/ {print $$4}' >> eval_map_square.log; done
+	ministat bench-baseline/eval_map_square.log eval_map_square.log
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 

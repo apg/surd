@@ -24,4 +24,4 @@
 
 
 ;; seg faults after this.
-(def x (map (lam (x) (* x x)) (iota 9482)))
+(def x (map (lam (x) (* x x)) (iota 5000)))

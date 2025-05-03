@@ -23,8 +23,10 @@ test_eval_fact(surd_t *s)
     while (!surd_is_nil(s, c)) {
       IS(i < nums_to_check, "read more numbers than expected");
       current = surd_car(s, c);
-      IS(surd_is_fixnum(s, current), "not a fixnum");
-      ISEQ(current->_value.num, actual[i], "value not the same as actual");
+      IS(surd_is_fixnum(s, current), "not a fixnum -- predicate");
+      int value = 0;
+      IS(surd_as_int(s, current, &value), "not a fixnum -- as_int");
+      ISEQ(value, actual[i], "value not the same as actual");
       i++;
       c = surd_cdr(s, c);
     }
@@ -35,10 +37,9 @@ test_eval_fact(surd_t *s)
 int
 main(int argc, char *argv[])
 {
-  surd_t s;
-  surd_init(&s, 100, 100);
-  test_eval_fact(&s);
-  surd_destroy(&s);
+  surd_t *s = surd_init();
+  test_eval_fact(s);
+  surd_destroy(s);
 
   report_results(argv[0]);
 

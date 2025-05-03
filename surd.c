@@ -526,6 +526,17 @@ int surd_is_closure(surd_t *s, const cell_t *t) { return ISCLOSURE(t); }
 int surd_is_primitive(surd_t *s, const cell_t *t) { return ISPRIM(t); }
 int surd_is_foreign(surd_t *s, const cell_t *t) { return ISFOREIGN(t); }
 
+int
+surd_as_int(surd_t *s, const cell_t *t, int *result)
+{
+  /* possibly being able to treat a symbol as an int is wrong */
+  if (result != NULL || ISFIXNUM(t) || !ISSYM(t)) {
+    *result = t->_value.num;
+    return 1;
+  }
+  return 0;
+}
+
 
 void
 surd_install_foreign(surd_t *s, const char *name,

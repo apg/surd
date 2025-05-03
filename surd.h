@@ -41,6 +41,8 @@ int surd_is_closure(surd_t *s, const cell_t *t);
 int surd_is_primitive(surd_t *s, const cell_t *t);
 int surd_is_foreign(surd_t *s, const cell_t *t);
 
+int surd_as_int(surd_t *s, const cell_t *t, int *result);
+
 cell_t *surd_read(surd_t *, FILE *in);
 void surd_display(surd_t *, FILE *out, cell_t *exp);
 void surd_write(surd_t *, FILE *out, cell_t *exp);

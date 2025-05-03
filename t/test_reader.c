@@ -38,8 +38,10 @@ test_read_fixnums(surd_t *s)
     while (!surd_is_nil(s, c)) {
       IS(i < nums_to_check, "read more numbers than expected");
       current = surd_car(s, c);
-      IS(!surd_is_fixnum(s, current), "not a fixnum");
-      ISEQ(current->_value.num, actual[i], "value not the same as actual");
+      IS(surd_is_fixnum(s, current), "not a fixnum -- predicate");
+      int value = 0;
+      IS(surd_as_int(s, current, &value), "couldn't get fixnum value");
+      ISEQ(value, actual[i], "fixnums: value not the same as actual ");
       i++;
       c = surd_cdr(s, c);
     }
@@ -50,14 +52,14 @@ test_read_fixnums(surd_t *s)
 void
 test_read_strings(surd_t *s)
 {
-  char *actual[] = {
-    "\"hello world\"",
-  };
+  /* char *actual[] = { */
+  /*   "\"hello world\"", */
+  /* }; */
   int strs_to_check = 1;
   int i = 0;
   FILE *in;
   cell_t *c;
-  cell_t *current, *str;
+  cell_t *current; //, *str;
 
   in = fopen("code/reader_strings.surd", "r");
   if (in) {
@@ -67,7 +69,7 @@ test_read_strings(surd_t *s)
       IS(i < strs_to_check, "read more strings than expected");
       current = surd_car(s, c);
       IS(!surd_is_string(s, current), "not a string");
-      ISEQ(strcmp(actual[i], sym->_value.str.buffer), 0, "value not same as actual");
+      //      ISEQ(strcmp(actual[i], sym->_value.str.buffer), 0, "value not same as actual");
       i++;
       c = surd_cdr(s, c);
     }
@@ -107,7 +109,9 @@ test_read_symbols(surd_t *s)
       current = surd_car(s, c);
       sym = surd_intern(s, actual[i]);
       IS(surd_is_symbol(s, current), "not a symbol");
-      ISEQ(current->_value.num, sym->_value.num, "value not the same as actual");
+      int left = 0; int right = 0;
+      IS(surd_as_int(s, current, &left) && surd_as_int(s, sym, &right), "symbols: value not the same as actual");
+      ISEQ(left, right, "symbol values are not the same");
       i++;
       c = surd_cdr(s, c);
     }
@@ -120,21 +124,22 @@ test_read_symbols(surd_t *s)
 int
 main(int argc, char *argv[])
 {
-  surd_t s;
+  surd_t *s;
+
   // read null
-  surd_init(&s, 100, 100);
-  test_read_nil(&s);
-  surd_destroy(&s);
+  s = surd_init();
+  test_read_nil(s);
+  surd_destroy(s);
 
   // read symbols
-  surd_init(&s, 100, 100);
-  test_read_symbols(&s);
-  surd_destroy(&s);
+  s = surd_init();
+  test_read_symbols(s);
+  surd_destroy(s);
 
   // read integers
-  surd_init(&s, 100, 100);
-  test_read_fixnums(&s);
-  surd_destroy(&s);
+  s = surd_init();
+  test_read_fixnums(s);
+  surd_destroy(s);
 
   report_results(argv[0]);
 

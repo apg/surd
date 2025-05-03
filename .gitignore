@@ -1,3 +1,7 @@
 *.o
 surd
 *~
+*.core
+t/test_eval
+t/test_primitives
+t/test_reader
