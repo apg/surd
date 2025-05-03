@@ -27,8 +27,8 @@ surd-release:
 surd: $(OBJS)
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) main.c -o surd
 
-test: $(OBJS)
-	cd t && $(MAKE) && cd ..
+check: $(OBJS)
+	cd t && $(MAKE) check && cd ..
 
 clean:
 	rm -f *.o surd

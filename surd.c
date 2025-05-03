@@ -8,13 +8,6 @@
 #include <gc.h>
 #include "surd.h"
 
-#define _PRE_INTERNED_SYMBOLS_SIZE 4
-static const char *_symbols_to_intern[] = {
-  "quote", "if", "lam", "def"
-};
-
-typedef struct symtab_entry symtab_entry_t;
-
 typedef enum {
   TNIL=0x0,
   TFIXNUM=0x1,
@@ -24,13 +17,12 @@ typedef enum {
   TCLOSURE=0x10, // env goes in cdr, code in car
   TPRIMITIVE=0x20,
   TFOREIGN=0x40,
-  TMACRO=0x80
+  TMACRO=0x80,
+  TERROR=0x100,
 } type_t;
 
 #define TYPE_BITS 16
-
 #define TATOMIC (TFIXNUM | TSYMBOL | TNIL)
-
 #define TYPE(c) (c->flags & ((1 << (TYPE_BITS+1)) - 1))
 
 struct cell {
@@ -41,6 +33,10 @@ struct cell {
       cell_t *car;
       cell_t *cdr;
     } cons;
+    struct str {
+      size_t length;
+      char *buffer;
+    } str;
     struct primitive {
       int arity;
       int num;
@@ -52,23 +48,95 @@ struct cell {
   } _value;
 };
 
-struct symtab_entry {
-  char *name;
-  cell_t *symbol;
+struct internpool {
+  char *buffer;
+  size_t buffer_capacity;
+  size_t buffer_length;
+  size_t *offsets;
+  size_t *lengths;
+  size_t offset_capacity;
+  size_t count;
 };
 
-struct surd {
-  /* Argument stack: */
-  cell_t **args;
-  int args_size;
-  int args_index;
+static void
+internpool_init(struct internpool *pool)
+{
+  pool->buffer = NULL;
+  pool->buffer_capacity = 0;
+  pool->buffer_length = 0;
+  pool->offsets = NULL;
+  pool->lengths = NULL;
+  pool->offset_capacity = 0;
+  pool->count = 0;
+}
 
+static size_t
+internpool_intern(struct internpool *pool, const char *str)
+{
+#define INITIAL_BUFFER_CAPACITY 2048
+#define INITIAL_OFFSET_CAPACITY 256
+  if (!str) return -1;
+  size_t len = strlen(str);
+
+  /** at some point, we could binary search on this and speed things up.
+   */
+  for (size_t i = 0; i < pool->count; i++) {
+    if (pool->lengths[i] == len) {
+      const char *s = pool->buffer + pool->offsets[i];
+      if (strcmp(s, str) == 0) {
+        return i;
+      }
+    }
+  }
+
+  len++; /* add 1 for the nul, to store */
+
+  if (pool->buffer_length + len > pool->buffer_capacity) {
+    size_t new_cap = pool->buffer_capacity ?
+      pool->buffer_capacity * 2: INITIAL_BUFFER_CAPACITY;
+    while (pool->buffer_capacity + len > new_cap) {
+      new_cap *= 2;
+    }
+    pool->buffer = GC_realloc(pool->buffer, new_cap);
+    pool->buffer_capacity = new_cap;
+  }
+
+  size_t offset = pool->buffer_length;
+  memcpy(pool->buffer + pool->buffer_length, str, len);
+  pool->buffer_length += len;
+
+  if (pool->count >= pool->offset_capacity) {
+    size_t new_cap = pool->offset_capacity ?
+      pool->offset_capacity * 2: INITIAL_OFFSET_CAPACITY;
+    pool->offsets = GC_realloc(pool->offsets, new_cap * sizeof(size_t));
+    pool->lengths = GC_realloc(pool->lengths, new_cap * sizeof(size_t));
+    pool->offset_capacity = new_cap;
+  }
+
+  size_t position = pool->count++;
+  pool->lengths[position] = len-1; /* don't include the nul */
+  pool->offsets[position] = offset;
+  return position;
+}
+
+static char *
+internpool_tostring(struct internpool *pool, size_t offset)
+{
+  if (offset >= pool->count) {
+    fprintf(stderr, "invalid symbol: %zu\n", offset);
+    exit(1);
+  }
+
+  size_t buffer_offset = pool->offsets[offset];
+  return pool->buffer + buffer_offset;
+}
+
+
+struct surd {
   /* Symbol table: symbols use cells as well as external memory
      created on the fly via malloc
   */
-  struct symtab_entry *symtab;
-  int symtab_size;
-  int symtab_index;
+  struct internpool *interns;
 
   /* initial eval environment */
   cell_t *env;
@@ -78,6 +146,12 @@ struct surd {
   cell_t *t;
   cell_t *nil;
   cell_t *eof;
+
+  cell_t *IF;
+  cell_t *QUOTE;
+  cell_t *LAM;
+  cell_t *DEF;
+  cell_t *TRUE;
 };
 
 enum SURD_PRIMITIVES {
@@ -110,6 +184,7 @@ enum SURD_PRIMITIVES {
 #define ISNIL(c) (c == (cell_t *)0)
 #define ISFIXNUM(c) (c != NULL && !ISNIL(c) && c->flags & TFIXNUM)
 #define ISSYM(c) (c != NULL && !ISNIL(c) && c->flags & TSYMBOL)
+#define ISSTR(c) (c != NULL && !ISNIL(c) && c->flags & TSTRING)
 #define ISCONS(c) (c != NULL && !ISNIL(c) && c->flags & TCONS)
 #define ISCLOSURE(c) (c != NULL && !ISNIL(c) && c->flags & TCLOSURE)
 #define ISPRIM(c) (c != NULL && !ISNIL(c) && c->flags & TPRIMITIVE)
@@ -127,12 +202,6 @@ surd_car(surd_t *s, cell_t *c)
 }
 
 cell_t *
-surd_env(surd_t *s)
-{
-  return s->env;
-}
-
-cell_t *
 surd_cdr(surd_t *s, cell_t *c)
 {
   if (ISCONS(c)) { return CDR(c); }
@@ -140,15 +209,34 @@ surd_cdr(surd_t *s, cell_t *c)
   return s->nil;
 }
 
-static int
-_symbol_position(surd_t *s, const char *sym)
+static void
+_setcar(surd_t *s, cell_t *cons, cell_t *car)
 {
-  for (int i = 0; i < s->symtab_index; i++) {
-    if (strcmp(s->symtab[i].name, sym) == 0) {
-      return i;
-    }
+  if (cons != s->nil && cons->flags == TCONS) {
+    cons->_value.cons.car = car;
   }
-  return -1;
+  else {
+    fprintf(stderr, "error: setcar: not a cons\n");
+    exit(1);
+  }
+}
+
+static void
+_setcdr(surd_t *s, cell_t *cons, cell_t *cdr)
+{
+  if (cons != s->nil && cons->flags == TCONS) {
+    cons->_value.cons.cdr = cdr;
+  }
+  else {
+    fprintf(stderr, "error: setcdr: not a cons\n");
+    exit(1);
+  }
+}
+
+cell_t *
+surd_env(surd_t *s)
+{
+  return s->env;
 }
 
 static cell_t *
@@ -158,12 +246,19 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
   cell_t *tmp;
   int i;
 
+  if (!ISSYM(sym)) {
+    fprintf(stderr, "error: attempt to lookup non symbol\n");
+    fflush(stderr);
+    exit(1);
+  }
+
   for (i = 0; i < 2; i++) {
     tmp = envs[i];
     while (tmp != s->nil && tmp != NULL) {
       if (ISCONS(tmp)) {
         if (ISCONS(CAR(tmp))) {
-          if (CAR(CAR(tmp)) == sym) {
+          cell_t *tmp2 = CAR(CAR(tmp));
+          if (tmp2->_value.num == sym->_value.num) {
             return CDR(CAR(tmp));
           }
         }
@@ -172,7 +267,8 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
     }
   }
 
-  fprintf(stderr, "error: symbol %s not found\n", s->symtab[sym->_value.num].name);
+  char *str = internpool_tostring(s->interns, sym->_value.num);
+  fprintf(stderr, "error: symbol '%s' not found\n", str);
   fflush(stderr);
   exit(1);
 }
@@ -235,7 +331,7 @@ _eval_list(surd_t *s, cell_t *list, cell_t *env)
   while (tmp != s->nil && tmp) {
     evaled = surd_eval(s, CAR(tmp), env, 0);
     next_next = surd_cons(s, evaled, s->nil);
-    next->_value.cons.cdr = next_next;
+    _setcdr(s, next, next_next);
     next = next_next;
     tmp = CDR(tmp);
   }
@@ -284,37 +380,30 @@ _eval_def(surd_t *s, cell_t *exp, cell_t *env)
   return evaled;
 }
 
-
-#define DEFAULT_SYMTAB_SIZE 256
-
 surd_t *
 surd_init(void)
 {
-  int i;
-
   surd_t *s = GC_malloc(sizeof(*s));
   if (s == NULL) {
     return NULL;
   }
 
-  s->symtab = GC_malloc(sizeof(*s->symtab) * DEFAULT_SYMTAB_SIZE);
+  struct internpool *interns = GC_malloc(sizeof(*interns));
+  internpool_init(interns);
 
-  s->symtab_index = 0;
-  s->symtab_size = DEFAULT_SYMTAB_SIZE;
+  s->interns = interns;
+
   s->nil = (cell_t *)0;
-  s->eof = (cell_t *)1;
-
-  memset(s->symtab, 0, sizeof(*s->symtab) * DEFAULT_SYMTAB_SIZE);
-
+  s->t = (cell_t *)1;
+  s->eof = (cell_t *)2;
   s->env = s->nil;
   s->top_env = s->nil;
 
-  // intern some key symbols
-  for (i = 0; i < _PRE_INTERNED_SYMBOLS_SIZE; i++) {
-    surd_intern(s, _symbols_to_intern[i]);
-  }
-
-  s->t = surd_internn(s, "true", 4);
+  s->IF = surd_intern(s, "if");
+  s->LAM = surd_intern(s, "lam");
+  s->DEF = surd_intern(s, "def");
+  s->QUOTE = surd_intern(s, "quote");
+  s->TRUE = surd_intern(s, "true");
 
   cell_t *sym, *prim;
 
@@ -361,6 +450,24 @@ surd_init(void)
   INSTALL_PRIMITIVE("get-byte", PRIM_GETBYTE, 1);
   INSTALL_PRIMITIVE("put-byte", PRIM_PUTBYTE, 2);
 
+  /* for (size_t i = 0; i < s->interns->buffer_length; i++) { */
+  /*   if (s->interns->buffer[i] == 0) { */
+  /*     putchar('\n'); */
+  /*   } */
+  /*   else { */
+  /*     putchar(s->interns->buffer[i]); */
+  /*   } */
+  /* } */
+
+  /* printf("------------------------\n"); */
+
+  /* for (size_t i = 0; i < s->interns->count; i++) { */
+  /*   char *sss = internpool_tostring(s->interns, i); */
+  /*   printf("%s ==? %s\n", s->interns->buffer + s->interns->offsets[i], sss); */
+  /* } */
+
+  /* printf("------------------------\n"); */
+
 #undef INSTALL_PRIMITIVE
 
   return s;
@@ -375,13 +482,6 @@ surd_new_cell(surd_t *s)
 void
 surd_destroy(surd_t *s)
 {
-  /* XXX: Who cares about real memory management? :) */
-  if (s->symtab) {
-    s->symtab = NULL;
-    s->symtab_size = 0;
-    s->symtab_index = 0;
-  }
-
   s->env = NULL;
 }
 
@@ -395,61 +495,25 @@ surd_num_init(surd_t *s, cell_t *c, int value)
 cell_t *
 surd_intern(surd_t *s, const char *str)
 {
-  return surd_internn(s, str, strlen(str));
+  cell_t *c = surd_new_cell(s);
+  size_t offset = internpool_intern(s->interns, str);
+  c->flags = TSYMBOL;
+  c->_value.num = offset;
+  return c;
 }
 
 cell_t *
-surd_internn(surd_t *s, const char *str, size_t n)
+surd_symbol_equal(surd_t *s, const cell_t *left, const cell_t *right)
 {
-  cell_t *c;
-  int i, newsize;
-  int slen = strlen(str);
-
-  i = _symbol_position(s, str);
-  if (i >= 0) {
-    return s->symtab[i].symbol;
-  }
-
-  i = s->symtab_index;
-  // didn't find it, so put the index at the end
-
-  if (i < s->symtab_size) {
-    c = surd_new_cell(s);
-    if (c != s->nil) {
-      c->flags = TSYMBOL;
-      c->_value.num = i;
-      s->symtab[i].name = strndup(str, slen);
-      s->symtab[i].symbol = c;
-      s->symtab_index++;
-    }
-    else {
-      fprintf(stderr, "error: out of memory in intern()\n");
-      exit(1);
+  if (ISSYM(left) && ISSYM(right)) {
+    char *ssl = internpool_tostring(s->interns, left->_value.num);
+    char *ssr = internpool_tostring(s->interns, right->_value.num);
+    if (left->_value.num == right->_value.num) {
+      return s->t;
     }
   }
-  else {
-    newsize = sizeof(*s->symtab) * s->symtab_size * 2;
-    s->symtab = realloc(s->symtab, newsize);
-    if (s->symtab) {
-      c = surd_new_cell(s);
-      if (c != s->nil) {
-        c->flags = TSYMBOL;
-        c->_value.num = i;
-        s->symtab[i].name = strndup(str, slen);
-        s->symtab[i].symbol = c;
-        s->symtab_index++;
-      }
-      else {
-        fprintf(stderr, "error: out of memory in intern()\n");
-        exit(1);
-      }
-    }
-    else {
-      fprintf(stderr, "error: out of memory in intern()\n");
-      exit(1);
-    }
-  }
-  return c;
+
+  return s->nil;
 }
 
 void
@@ -469,8 +533,6 @@ surd_install_foreign(surd_t *s, const char *name,
     exit(1);
   }
 }
-
-
 
 cell_t *
 surd_cons(surd_t *s, cell_t *car, cell_t *cdr)
@@ -500,7 +562,7 @@ surd_list_length(surd_t *s, cell_t *c)
     while (c != s->nil) {
       if (ISCONS(c)) {
         len++;
-        c = c->_value.cons.cdr;
+        c = CDR(c);
       }
       else {
         len = -1;
@@ -640,6 +702,7 @@ trynumber(const char *buf, int bufi, long int *iout, double *flout)
 }
 
 static cell_t *readlist_(surd_t *s, struct port *in);
+static cell_t *readstring_(surd_t *s, struct port *in);
 
 static cell_t *
 read_(surd_t *s, struct port *in)
@@ -657,11 +720,12 @@ read_(surd_t *s, struct port *in)
       fprintf(stderr, "read closing brace without open");
       exit(1);
     case '\'': {// quote
-      cell_t *sym = surd_internn(s, "quote", 5);
+      cell_t *sym = surd_intern(s, "quote");
       cell_t *tmp = read_(s, in);
       cell_t *tmp2 = surd_cons(s, tmp, s->nil);
       return surd_cons(s, sym, tmp2);
     }
+    case '"': return readstring_(s, in);
     case '(':
       return readlist_(s, in);
     default: {
@@ -678,12 +742,12 @@ read_(surd_t *s, struct port *in)
       } while (c && c != EOF && !strchr(READ_DELIMS, c));
       buf[bufi] = '\0';
       ungetc_(in, c);
-      if (bufi == 1 && strchr("-+", buf[0])) { return surd_internn(s, buf, 1); }
+      if (bufi == 1 && strchr("-+", buf[0])) { return surd_intern(s, buf); }
       long int intres = 0;
       double flores = 0.0;
       switch (trynumber(buf, bufi, &intres, &flores)) {
       case 0: /* not a number, symbol */
-        return surd_internn(s, buf, bufi);
+        return surd_intern(s, buf);
       case 1: /* int */
         {
           cell_t *tmp = surd_new_cell(s);
@@ -719,6 +783,47 @@ readlist_(surd_t *s, struct port *in)
   return surd_cons(s, obj, list);
 }
 
+static cell_t *
+readstring_(surd_t *s, struct port *in)
+{
+#define STRLEN 256
+  char buf[STRLEN];
+  int c = getc_(in), c2;
+  int bufi = 0;
+  while (c && c != EOF && c != '"') {
+    if (bufi == STRLEN - 1) {
+      fprintf(stderr, "string too long\n"); /* TODO: NEED DYNAMIC ALLOCATION */
+      exit(1);
+    }
+    if (c == '\\') {
+      c2 = getc_(in);
+      switch (c2) {
+      case 'a': c = '\a'; break;
+      case 'n': c = '\n'; break;
+      case 'r': c = '\r'; break;
+      case 't': c = '\t'; break;
+      case '"': c = '"'; break;
+      default:
+        fprintf(stderr, "error: invalid escape sequence\n");
+        exit(1);
+      }
+    }
+    buf[bufi++] = c;
+    buf[bufi] = '\0';
+    c = getc_(in);
+  }
+  buf[bufi] = '\0';
+  ungetc_(in, c);
+
+  cell_t *str = surd_new_cell(s);
+  str->flags = TSTRING;
+  str->_value.str.buffer = strdup(buf);
+  str->_value.str.length = bufi;
+  return str;
+
+#undef STRLEN
+}
+
 #undef READ_DELIMS
 #undef READ_WHITESPACE
 
@@ -751,7 +856,7 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
     fprintf(out, "%d", exp->_value.num);
   }
   else if (ISSYM(exp)) {
-    fprintf(out, "%s", s->symtab[exp->_value.num].name);
+    fprintf(out, "%s", internpool_tostring(s->interns, exp->_value.num));
   }
   else if (ISCONS(exp)) {
     fprintf(out, "(");
@@ -789,6 +894,13 @@ surd_write(surd_t *s, FILE *out, cell_t *exp)
   surd_display(s, out, exp);
 }
 
+/* static cell_t * */
+/* surd_compile(void) */
+/* { */
+/*   return NULL; */
+/* } */
+
+
 cell_t *
 surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
 {
@@ -801,7 +913,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
     }
     else if (ISCONS(exp)) {
       cell_t *car = CAR(exp);
-      if (car == surd_intern(s, "quote")) {
+      if (surd_symbol_equal(s, car, s->QUOTE) == s->t) {
         cell_t *tmp = CDR(exp);
         if (ISCONS(tmp)) {
           return CAR(tmp);
@@ -812,10 +924,10 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
           return s->nil;
         }
       }
-      else if (car == surd_intern(s, "if")) {
+      else if (surd_symbol_equal(s, car, s->IF) == s->t) {
         exp = _eval_if(s, exp, env);
       }
-      else if (car == surd_intern(s, "lam")) {
+      else if (surd_symbol_equal(s, car, s->LAM) == s->t) {
         if (surd_list_length(s, exp) > 2) {
           return surd_make_closure(s, exp, env);
         }
@@ -824,7 +936,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
           exit(1);
         }
       }
-      else if (car == surd_intern(s, "def")) {
+      else if (surd_symbol_equal(s, car, s->DEF) == s->t) {
         if (top) {
           return _eval_def(s, exp, env);
         } else {
@@ -1056,20 +1168,20 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
       case PRIM_EQ: {
         cell_t *arg1 = CAR(args);
         cell_t *arg2 = CAR(CDR(args));
+        if (arg1 == arg2) {
+          return s->t;
+        }
         if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
           if (arg1->_value.num == arg2->_value.num) {
             return s->t;
           }
           return s->nil;
         }
-        else if (ISSYM(arg2) && ISSYM(arg1)) {
+        if (ISSYM(arg2) && ISSYM(arg1)) {
           if (arg1->_value.num == arg2->_value.num) {
             return s->t;
           }
           return s->nil;
-        }
-        else if (arg1 == arg2) {
-          return s->t;
         }
         return s->nil;
       }
@@ -1112,8 +1224,8 @@ surd_apply(surd_t *s, cell_t *closure, cell_t *args)
     }
   }
   else if (ISCLOSURE(closure)) {
-    cell_t *code = closure->_value.cons.car;
-    cell_t *nenv = closure->_value.cons.cdr;
+    cell_t *code = CAR(closure);
+    cell_t *nenv = CDR(closure);
     nenv = _env_extend(s, nenv, surd_car(s, surd_cdr(s, code)), args);
     cell_t *tmp = surd_eval(s, surd_car(s, surd_cdr(s, surd_cdr(s, code))), nenv, 1);
     return tmp;

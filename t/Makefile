@@ -1,10 +1,10 @@
 CFLAGS = -g -Wall
 LDFLAGS = -lgc
-DEPS = ../surd.o
+DEPS = ../surd.c
 
 TESTS = test_reader test_primitives test_eval
 
-run: $(TESTS)
+check: $(TESTS)
 	./run-tests.sh $(TESTS)
 
 test_reader: test_reader.c

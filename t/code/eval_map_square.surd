@@ -23,4 +23,5 @@
    (map% fn xs '()) '()))
 
 
-(map (lam (x) (* x x)) (iota 5000))
+;; seg faults after this.
+(def x (map (lam (x) (* x x)) (iota 9482)))

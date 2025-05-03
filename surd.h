@@ -11,8 +11,6 @@ typedef struct cons cons_t;
 struct symtab_entry;
 typedef struct surd surd_t;
 
-
-
 surd_t *surd_init(void);
 void surd_destroy(surd_t *);
 cell_t *surd_env(surd_t *);
@@ -30,13 +28,12 @@ cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
 void surd_num_init(surd_t *, cell_t *c, int value);
 cell_t *surd_intern(surd_t *, const char *value);
-cell_t *surd_internn(surd_t *, const char *value, size_t n);
+cell_t *surd_symbol_equal(surd_t *, const cell_t *l, const cell_t *r);
 
 cell_t *surd_read(surd_t *, FILE *in);
 void surd_display(surd_t *, FILE *out, cell_t *exp);
 void surd_write(surd_t *, FILE *out, cell_t *exp);
 
 cell_t *surd_load(surd_t *, FILE *in);
-
 
 #endif
