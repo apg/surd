@@ -502,19 +502,30 @@ surd_intern(surd_t *s, const char *str)
   return c;
 }
 
-cell_t *
+int
 surd_symbol_equal(surd_t *s, const cell_t *left, const cell_t *right)
 {
   if (ISSYM(left) && ISSYM(right)) {
-    char *ssl = internpool_tostring(s->interns, left->_value.num);
-    char *ssr = internpool_tostring(s->interns, right->_value.num);
     if (left->_value.num == right->_value.num) {
-      return s->t;
+      return 1;
     }
   }
 
-  return s->nil;
+  return 0;
 }
+
+int
+surd_is_null(surd_t *s, const cell_t *t)
+{
+  return s->nil == t;
+}
+
+int
+surd_is_true(surd_t *s, const cell_t *t)
+{
+  return s->t == t;
+}
+
 
 void
 surd_install_foreign(surd_t *s, const char *name,
@@ -913,7 +924,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
     }
     else if (ISCONS(exp)) {
       cell_t *car = CAR(exp);
-      if (surd_symbol_equal(s, car, s->QUOTE) == s->t) {
+      if (surd_symbol_equal(s, car, s->QUOTE)) {
         cell_t *tmp = CDR(exp);
         if (ISCONS(tmp)) {
           return CAR(tmp);
@@ -924,10 +935,10 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
           return s->nil;
         }
       }
-      else if (surd_symbol_equal(s, car, s->IF) == s->t) {
+      else if (surd_symbol_equal(s, car, s->IF)) {
         exp = _eval_if(s, exp, env);
       }
-      else if (surd_symbol_equal(s, car, s->LAM) == s->t) {
+      else if (surd_symbol_equal(s, car, s->LAM)) {
         if (surd_list_length(s, exp) > 2) {
           return surd_make_closure(s, exp, env);
         }
@@ -936,7 +947,7 @@ surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
           exit(1);
         }
       }
-      else if (surd_symbol_equal(s, car, s->DEF) == s->t) {
+      else if (surd_symbol_equal(s, car, s->DEF)) {
         if (top) {
           return _eval_def(s, exp, env);
         } else {

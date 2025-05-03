@@ -6,32 +6,32 @@
 static int FAILURES = 0;
 static int SUCCESSES = 0;
 
-#define IS(x, z) do{if ((x)) { SUCCESSES++;} \
-    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", z); } \
+#define IS(x, msg) do{if ((x)) { SUCCESSES++;} \
+    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", msg); } \
   } while(0);
 
-#define ISEQ(x, y, z) do{if ((x) == (y)) { SUCCESSES++;} \
-    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", z); } \
+#define ISEQ(x, y, msg) do{if ((x) == (y)) { SUCCESSES++;} \
+    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", msg); } \
   } while(0);
 
-#define ISNE(x, y, z) do{if ((x) != (y)) { SUCCESSES++;} \
-    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", z); } \
+#define ISNE(x, y, msg) do{if ((x) != (y)) { SUCCESSES++;} \
+    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", msg); } \
   } while(0);
 
-#define ISGT(x, y, z) do{if ((x) > (y)) { SUCCESSES++;} \
-    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", z); } \
+#define ISGT(x, y, msg) do{if ((x) > (y)) { SUCCESSES++;} \
+    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", msg); } \
   } while(0);
 
-#define ISGE(x, y, z) do{if ((x) >= (y)) { SUCCESSES++;} \
-    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", z); } \
+#define ISGE(x, y, msg) do{if ((x) >= (y)) { SUCCESSES++;} \
+    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", msg); } \
   } while(0);
 
-#define ISLT(x, y, z) do{if ((x) < (y)) { SUCCESSES++;} \
-    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", z); } \
+#define ISLT(x, y, msg) do{if ((x) < (y)) { SUCCESSES++;} \
+    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", msg); } \
   } while(0);
 
-#define ISLE(x, y, z) do{if ((x) <= (y)) { SUCCESSES++;} \
-    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", z); } \
+#define ISLE(x, y, msg) do{if ((x) <= (y)) { SUCCESSES++;} \
+    else { FAILURES++; fprintf(stderr, "  FAILURE: '%s' failed\n", msg); } \
   } while(0);
 
 void

@@ -47,6 +47,35 @@ test_read_fixnums(surd_t *s)
   }
 }
 
+void
+test_read_strings(surd_t *s)
+{
+  char *actual[] = {
+    "\"hello world\"",
+  };
+  int strs_to_check = 1;
+  int i = 0;
+  FILE *in;
+  cell_t *c;
+  cell_t *current, *str;
+
+  in = fopen("code/reader_strings.surd", "r");
+  if (in) {
+    c = surd_read(s, in);
+    IS(c != s->nil, "read returned nil :(");
+    while (c != s->nil) {
+      IS(i < strs_to_check, "read more strings than expected");
+      current = surd_car(s, c);
+      IS(ISSTR(current), "not a string");
+      ISEQ(strcmp(actual[i], sym->_value.str.buffer) == 0, "value not same as actual");
+      i++;
+      c = surd_cdr(s, c);
+    }
+    fclose(in);
+  }
+}
+
+
 
 void
 test_read_symbols(surd_t *s)

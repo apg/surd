@@ -12,6 +12,4 @@
 
 (cons (fact 1)
       (cons (fact 2)
-            (cons (fact 5)
-                  (cons (fact 10) '()))))
-
+            (cons (fact 5) '())))

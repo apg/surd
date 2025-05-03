@@ -28,7 +28,8 @@ cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
 void surd_num_init(surd_t *, cell_t *c, int value);
 cell_t *surd_intern(surd_t *, const char *value);
-cell_t *surd_symbol_equal(surd_t *, const cell_t *l, const cell_t *r);
+int surd_symbol_equal(surd_t *, const cell_t *l, const cell_t *r);
+int surd_is_null(surd_t *, const cell_t *l);
 
 cell_t *surd_read(surd_t *, FILE *in);
 void surd_display(surd_t *, FILE *out, cell_t *exp);
