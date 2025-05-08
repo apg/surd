@@ -7,7 +7,7 @@ WARNINGS=-fstack-protector -pedantic -W -Wall -Wbad-function-cast \
 	-Wstack-protector -Wswitch -Wundef -Wwrite-strings
 INCLUDES=
 LDFLAGS=-lgc -lm
-CFLAGS=$(DEBUG) $(WARNINGS) $(INCLUDES) $(RELEASE) -std=c99
+CFLAGS=$(DEBUG) $(WARNINGS) $(INCLUDES) $(RELEASE) -std=c99 -DPROFILE
 PREFIX?=/usr/local
 
 OBJS=surd.o
@@ -25,7 +25,7 @@ surd-release:
 	$(MAKE) RELEASE='-O2' surd
 
 surd: $(OBJS)
-	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) main.c -o surd
+	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) -o surd
 
 check: $(OBJS)
 	cd t && $(MAKE) check && cd ..
@@ -40,11 +40,11 @@ bench: bench-map-square bench-fact
 
 bench-fact: surd
 	rm -f eval_map_square.log
-	for n in `seq 100`; do ./surd t/code/eval_fact.surd 2>&1 | awk '/ellapsed load time/ {print $$4}' >> eval_fact.log; done
+	for n in `seq 100`; do ./surd t/code/eval_fact.surd 2>&1 | awk '/elapsed load time/ {print $$4}' >> eval_fact.log; done
 	ministat bench-baseline/eval_fact.log eval_fact.log
 
 bench-map-square: surd
-	for n in `seq 100`; do ./surd t/code/eval_map_square.surd 2>&1 | awk '/ellapsed load time/ {print $$4}' >> eval_map_square.log; done
+	for n in `seq 100`; do ./surd t/code/eval_map_square.surd 2>&1 | awk '/elapsed load time/ {print $$4}' >> eval_map_square.log; done
 	ministat bench-baseline/eval_map_square.log eval_map_square.log
 
 %.o: %.c
