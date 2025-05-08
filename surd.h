@@ -6,6 +6,7 @@
 #include <stdio.h>
 
 typedef struct cell cell_t;
+typedef struct frame frame_t;
 typedef struct surd surd_t;
 
 surd_t *surd_init(void);
@@ -19,8 +20,8 @@ cell_t *surd_cons(surd_t *, cell_t *car, cell_t *cdr);
 int surd_list_length(surd_t *s, cell_t *c);
 cell_t *surd_car(surd_t *, cell_t *cns);
 cell_t *surd_cdr(surd_t *, cell_t *cns);
-cell_t *surd_make_closure(surd_t *, cell_t *code, cell_t *env);
-cell_t *surd_eval(surd_t *, cell_t *exp, cell_t *env, int top);
+cell_t *surd_make_closure(surd_t *, cell_t *code, frame_t *env);
+cell_t *surd_eval(surd_t *, cell_t *exp, frame_t *env, int top);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
 
 void surd_num_init(surd_t *, cell_t *c, int value);

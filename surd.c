@@ -40,6 +40,10 @@ struct cell {
       size_t length;
       char *buffer;
     } str;
+    struct closure {
+      frame_t *env;
+      cell_t *code;
+    } closure;
     struct primitive {
       int arity;
       int num;
@@ -72,6 +76,25 @@ internpool_init(struct internpool *pool)
   pool->offset_capacity = 0;
   pool->count = 0;
 }
+
+struct frame {
+  size_t *names; /* symbol offsets */
+  cell_t **values;
+  size_t length;
+  size_t capacity;
+  struct frame *parent;
+};
+
+static void
+frame_init(frame_t *f)
+{
+  f->names = NULL;
+  f->values = NULL;
+  f->capacity = 0;
+  f->length = 0;
+  f->parent = NULL;
+}
+
 
 static size_t
 internpool_intern(struct internpool *pool, const char *str)
@@ -137,6 +160,7 @@ internpool_tostring(struct internpool *pool, size_t offset)
 }
 
 
+
 struct surd {
   /* Symbol table: symbols use cells as well as external memory
      created on the fly via malloc
@@ -144,10 +168,10 @@ struct surd {
   struct internpool *interns;
 
   /* initial eval environment */
-  cell_t *env;
+  frame_t *env;
 
   /* Top level environment */
-  cell_t *top_env;
+  frame_t *top_env;
   cell_t *t;
   cell_t *nil;
   cell_t *eof;
@@ -201,8 +225,7 @@ enum SURD_PRIMITIVES {
 
 static void
 die(const char *msg)
-{ PROFILE_START();
-
+{
   fprintf(stderr, "error: %s\n", msg);
   exit(1);
 }
@@ -256,30 +279,25 @@ surd_env(surd_t *s)
 }
 
 static cell_t *
-_env_lookup(surd_t *s, cell_t *env, cell_t *sym)
+_env_lookup(surd_t *s, frame_t *env, cell_t *sym)
 { PROFILE_START();
 
-  cell_t *envs[] = { env, s->top_env };
-  cell_t *tmp;
-  int i;
+  frame_t *envs[] = { env, s->top_env };
 
   if (!ISSYM(sym)) {
     die("attempt to lookup non-symbol");
     _RETURN s->nil;
   }
 
-  for (i = 0; i < 2; i++) {
-    tmp = envs[i];
-    while (tmp != s->nil && tmp != NULL) {
-      if (ISCONS(tmp)) {
-        if (ISCONS(CAR(tmp))) {
-          cell_t *tmp2 = CAR(CAR(tmp));
-          if (tmp2->_value.num == sym->_value.num) {
-            _RETURN CDR(CAR(tmp));
-          }
+  for (size_t i = 0; i < 2; i++) {
+    frame_t *tmp = envs[i];
+    while (tmp != NULL) {
+      for (size_t j = 0; j < tmp->length; j++) {
+        if (sym->_value.num == (int)tmp->names[j]) {
+          _RETURN tmp->values[j];
         }
       }
-      tmp = CDR(tmp);
+      tmp = tmp->parent;
     }
   }
 
@@ -287,27 +305,42 @@ _env_lookup(surd_t *s, cell_t *env, cell_t *sym)
   return s->nil;
 }
 
-static cell_t *
-_env_insert(surd_t *s, cell_t *env, cell_t *sym, cell_t *value)
+static void
+_env_insert(surd_t *s, frame_t *env, cell_t *sym, cell_t *value)
 { PROFILE_START();
+#define INITIAL_FRAME_CAPACITY 4
 
-  cell_t *c, *result;
-  c = surd_cons(s, sym, value);
-  result = surd_cons(s, c, env);
-  _RETURN result;
+  if (env == NULL) {
+    die("env is null!");
+  }
+
+  if (env->length >= env->capacity) {
+    size_t new_cap = env->capacity ?
+      env->capacity * 2: INITIAL_FRAME_CAPACITY;
+    env->names = GC_realloc(env->names, sizeof(env->names) * new_cap);
+    env->values = GC_realloc(env->values, sizeof(env->names) * new_cap);
+    env->capacity = new_cap;
+  }
+
+  env->names[env->length] = sym->_value.num;
+  env->values[env->length] = value;
+  env->length++;
+  _RETURN;
 }
 
-static cell_t *
-_env_extend(surd_t *s, cell_t *env, cell_t *params, cell_t *args)
+static frame_t *
+_env_extend(surd_t *s, frame_t *env, cell_t *params, cell_t *args)
 { PROFILE_START();
 
-  cell_t *sym, *val, *result;
+  cell_t *sym, *val;
 
-  result = env;
+  frame_t *result = GC_malloc(sizeof(*result));
+  frame_init(result);
+
+  result->parent = env;
 
   for (;;) {
     if (params == s->nil && args == s->nil) {
-      result = env;
       break;
     }
     else if (params == s->nil && args != s->nil) {
@@ -321,7 +354,7 @@ _env_extend(surd_t *s, cell_t *env, cell_t *params, cell_t *args)
     else {
       sym = surd_car(s, params);
       val = surd_car(s, args);
-      env = _env_insert(s, env, sym, val);
+      _env_insert(s, result, sym, val);
       params = surd_cdr(s, params);
       args = surd_cdr(s, args);
     }
@@ -347,8 +380,12 @@ surd_init(void)
   s->nil = (cell_t *)0;
   s->t = (cell_t *)1;
   s->eof = (cell_t *)2;
-  s->env = s->nil;
-  s->top_env = s->nil;
+
+  s->env = NULL;
+
+  frame_t *top_env = GC_malloc(sizeof(*top_env));
+  frame_init(top_env);
+  s->top_env = top_env;
 
   s->IF = surd_intern(s, "if");
   s->LAM = surd_intern(s, "lam");
@@ -365,7 +402,7 @@ surd_init(void)
     prim->flags = TPRIMITIVE; \
     prim->_value.primitive.arity = ARITY; \
     prim->_value.primitive.num = NUM; \
-    s->top_env = _env_insert(s, s->top_env, sym, prim); \
+    _env_insert(s, s->top_env, sym, prim); \
   } \
   else { \
     die("out of memory installing primitive"); \
@@ -487,7 +524,7 @@ surd_install_foreign(surd_t *s, const char *name,
     prim->flags = TFOREIGN;
     prim->_value.foreign.arity = arity;
     prim->_value.foreign.cfunc = func;
-    s->top_env = _env_insert(s, s->top_env, sym, prim);
+    _env_insert(s, s->top_env, sym, prim);
     _RETURN;
   }
   die("out of memory in surd_install_foreign");
@@ -534,13 +571,19 @@ surd_list_length(surd_t *s, cell_t *c)
 }
 
 cell_t *
-surd_make_closure(surd_t *s, cell_t *code, cell_t *env)
+surd_make_closure(surd_t *s, cell_t *code, frame_t *env)
 { PROFILE_START();
 
-  cell_t *cls;
-  cls = surd_cons(s, code, env);
-  cls->flags = TCLOSURE;
-  _RETURN cls;
+  cell_t *new = surd_new_cell(s);
+  if (new != s->nil) {
+    new->flags = TCLOSURE;
+    new->_value.closure.env = env;
+    new->_value.closure.code = code;
+    _RETURN new;
+  }
+
+  die("out of memory in surd_make_closure");
+  _RETURN s->nil;
 }
 
 #define READ_WHITESPACE " \t\n\r"
@@ -1071,7 +1114,7 @@ apply_foreign(surd_t *s, cell_t *foreign, cell_t *args)
 
 
 static cell_t *
-eval_loop(surd_t *s, cell_t *exp, cell_t *env, int top)
+eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
 { PROFILE_START();
 
   for (;;) {
@@ -1127,7 +1170,7 @@ eval_loop(surd_t *s, cell_t *exp, cell_t *env, int top)
       // TODO: check arity!
       if (ISSYM(symbol)) {
         cell_t *evaled = eval_loop(s, value, env, 0);
-        s->top_env = _env_insert(s, s->top_env, symbol, evaled);
+        _env_insert(s, s->top_env, symbol, evaled);
         _RETURN evaled;
       }
       else {
@@ -1164,8 +1207,9 @@ eval_loop(surd_t *s, cell_t *exp, cell_t *env, int top)
         _RETURN apply_foreign(s, op, args);
       }
 
-      cell_t *code = CAR(op);
-      env = _env_extend(s, env, surd_car(s, surd_cdr(s, code)), args);
+      cell_t *code = op->_value.closure.code;
+      frame_t *cenv = op->_value.closure.env;
+      env = _env_extend(s, cenv, surd_car(s, surd_cdr(s, code)), args);
       exp = surd_car(s, surd_cdr(s, surd_cdr(s, code)));
       goto recur;
     }
@@ -1175,7 +1219,7 @@ eval_loop(surd_t *s, cell_t *exp, cell_t *env, int top)
 
 
 cell_t *
-surd_eval(surd_t *s, cell_t *exp, cell_t *env, int top)
+surd_eval(surd_t *s, cell_t *exp, frame_t *env, int top)
 { PROFILE_START();
 
   _RETURN eval_loop(s, exp, env, top);
@@ -1196,7 +1240,7 @@ surd_load(surd_t *s, FILE *in)
   cell_t *tmp;
   cell_t *last = s->nil;
   while ((tmp = surd_read(s, in)) != NULL) {
-    last = surd_eval(s, tmp, s->env, 1);
+    last = surd_eval(s, tmp, surd_env(s), 1);
   }
   _RETURN last;
 }

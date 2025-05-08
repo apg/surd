@@ -7,7 +7,7 @@ WARNINGS=-fstack-protector -pedantic -W -Wall -Wbad-function-cast \
 	-Wstack-protector -Wswitch -Wundef -Wwrite-strings
 INCLUDES=
 LDFLAGS=-lgc -lm
-CFLAGS=$(DEBUG) $(WARNINGS) $(INCLUDES) $(RELEASE) -std=c99 -DPROFILE
+CFLAGS=$(DEBUG) $(WARNINGS) $(INCLUDES) $(RELEASE) -std=c99
 PREFIX?=/usr/local
 
 OBJS=surd.o
@@ -16,7 +16,7 @@ LINTABLES=surd.c\
 	surd.h
 
 surd-debug:
-	$(MAKE) DEBUG='-g' clean surd
+	$(MAKE) DEBUG='-g -DPROFILE' clean surd
 
 surd-sanitize:
 	$(MAKE) DEBUG='-g -fsanitize=address -fno-omit-frame-pointer' clean surd
