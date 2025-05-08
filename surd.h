@@ -6,9 +6,6 @@
 #include <stdio.h>
 
 typedef struct cell cell_t;
-typedef struct cons cons_t;
-
-struct symtab_entry;
 typedef struct surd surd_t;
 
 surd_t *surd_init(void);
