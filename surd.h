@@ -23,6 +23,7 @@ cell_t *surd_cdr(surd_t *, cell_t *cns);
 cell_t *surd_make_closure(surd_t *, cell_t *code, frame_t *env);
 cell_t *surd_eval(surd_t *, cell_t *exp, frame_t *env, int top);
 cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
+cell_t *surd_make_port(surd_t *, FILE *p);
 
 void surd_num_init(surd_t *, cell_t *c, int value);
 cell_t *surd_intern(surd_t *, const char *value);

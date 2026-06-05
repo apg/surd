@@ -22,6 +22,7 @@ typedef enum {
   TFOREIGN=0x40,
   TMACRO=0x80,
   TERROR=0x100,
+  TPORT=0x200,
 } type_t;
 
 #define TYPE_BITS 16
@@ -52,6 +53,7 @@ struct cell {
       int arity;
       cell_t *(*cfunc)(surd_t *, cell_t *args);
     } foreign;
+    struct port *port;
   } _value;
 };
 
@@ -207,8 +209,10 @@ enum SURD_PRIMITIVES {
   PRIM_READ,
   PRIM_WRITE,
   PRIM_OPEN,
+  PRIM_CLOSE,
   PRIM_GETBYTE,
-  PRIM_PUTBYTE
+  PRIM_PUTBYTE,
+  PRIM_PUTSTR,
 };
 
 #define ISNIL(c) (c == (cell_t *)0)
@@ -219,6 +223,7 @@ enum SURD_PRIMITIVES {
 #define ISCLOSURE(c) (c != NULL && !ISNIL(c) && c->flags & TCLOSURE)
 #define ISPRIM(c) (c != NULL && !ISNIL(c) && c->flags & TPRIMITIVE)
 #define ISFOREIGN(c) (c != NULL && !ISNIL(c) && c->flags & TFOREIGN)
+#define ISPORT(c) (c != NULL && !ISNIL(c) && c->flags & TPORT)
 
 #define CAR(c) (c->_value.cons.car)
 #define CDR(c) (c->_value.cons.cdr)
@@ -363,6 +368,8 @@ _env_extend(surd_t *s, frame_t *env, cell_t *params, cell_t *args)
   _RETURN result;
 }
 
+static cell_t *make_port_cell(surd_t *s, FILE *f, int noclose);
+
 surd_t *
 surd_init(void)
 { PROFILE_START();
@@ -435,10 +442,23 @@ surd_init(void)
   INSTALL_PRIMITIVE("read", PRIM_READ, 1);
   INSTALL_PRIMITIVE("write", PRIM_WRITE, 2);
   INSTALL_PRIMITIVE("open", PRIM_OPEN, 2);
+  INSTALL_PRIMITIVE("close", PRIM_CLOSE, 1);
   INSTALL_PRIMITIVE("get-byte", PRIM_GETBYTE, 1);
   INSTALL_PRIMITIVE("put-byte", PRIM_PUTBYTE, 2);
+  INSTALL_PRIMITIVE("put-str", PRIM_PUTSTR, 2);
+  INSTALL_PRIMITIVE("load", PRIM_LOAD, 1);
 
 #undef INSTALL_PRIMITIVE
+
+#define INSTALL_STD_PORT(NAME, FD, MODE) \
+  sym = surd_intern(s, NAME); \
+  _env_insert(s, s->top_env, sym, make_port_cell(s, fdopen(FD, MODE), 1));
+
+  INSTALL_STD_PORT("stdin",  STDIN_FILENO,  "r");
+  INSTALL_STD_PORT("stdout", STDOUT_FILENO, "w");
+  INSTALL_STD_PORT("stderr", STDERR_FILENO, "w");
+
+#undef INSTALL_STD_PORT
 
   _RETURN s;
 }
@@ -455,6 +475,13 @@ surd_destroy(surd_t *s)
 { PROFILE_START();
 
   s->env = NULL;
+}
+
+cell_t *
+surd_make_port(surd_t *s, FILE *p)
+{ PROFILE_START();
+
+  _RETURN make_port_cell(s, p, 0);
 }
 
 void
@@ -618,10 +645,28 @@ static int file_getc(void *data) { return fgetc((FILE *)data); }
 static int file_putc(void *data, int ch) { return fputc(ch, (FILE *)data); }
 static int file_ungetc(void *data, int ch) { return ungetc(ch, (FILE *)data); }
 static int file_close(void *data) { return fclose((FILE *)data); }
+static int file_noclose(void *data) { (void)data; return 0; }
 static int64_t file_tell(void *data, int *line, int *col) {
   if (line != NULL) { *line = -1; }
   if (col != NULL) { *col = -1; }
   return ftell((FILE *)data);
+}
+
+static cell_t *
+make_port_cell(surd_t *s, FILE *f, int noclose)
+{ PROFILE_START();
+
+  struct port *p = GC_malloc(sizeof(*p));
+  p->pgetc = file_getc;
+  p->pungetc = file_ungetc;
+  p->pputc = file_putc;
+  p->pclose = noclose ? file_noclose : file_close;
+  p->ptell = file_tell;
+  p->underlying = f;
+  cell_t *c = surd_new_cell(s);
+  c->flags = TPORT;
+  c->_value.port = p;
+  _RETURN c;
 }
 
 static int
@@ -894,6 +939,9 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
   else if (ISPRIM(exp)) {
     fprintf(out, "<#primitive: %p>", (void *)exp);
   }
+  else if (ISPORT(exp)) {
+    fprintf(out, "<#port: %p>", (void *)exp->_value.port->underlying);
+  }
   else {
     fprintf(out, "umm...");
   }
@@ -1076,24 +1124,57 @@ apply_prim(surd_t *s, cell_t *prim, cell_t *args)
       _RETURN s->nil;
     }
     case PRIM_READ: {
-      fprintf(stderr, "read not implemented\n");
-      exit(1);
+      cell_t *arg1 = CAR(args);
+      if (!ISPORT(arg1)) { die("read requires a port"); }
+      cell_t *result = read_(s, arg1->_value.port);
+      _RETURN result ? result : s->eof;
     }
     case PRIM_WRITE: {
-      fprintf(stderr, "write not implemented\n");
-      exit(1);
+      cell_t *arg1 = CAR(args);
+      cell_t *arg2 = CAR(CDR(args));
+      if (!ISPORT(arg2)) { die("write requires a port as second argument"); }
+      surd_write(s, (FILE *)arg2->_value.port->underlying, arg1);
+      _RETURN arg1;
     }
     case PRIM_OPEN: {
-      fprintf(stderr, "open not implemented\n");
-      exit(1);
+      cell_t *arg1 = CAR(args);
+      cell_t *arg2 = CAR(CDR(args));
+      if (!ISSTR(arg1) || !ISSTR(arg2)) { die("open requires two strings"); }
+      FILE *f = fopen(arg1->_value.str.buffer, arg2->_value.str.buffer);
+      if (!f) { die("open failed"); }
+      _RETURN make_port_cell(s, f, 0);
+    }
+    case PRIM_CLOSE: {
+      cell_t *arg1 = CAR(args);
+      if (!ISPORT(arg1)) { die("close requires a port"); }
+      close_(arg1->_value.port);
+      _RETURN arg1;
     }
     case PRIM_GETBYTE: {
-      fprintf(stderr, "get-byte not implemented\n");
-      exit(1);
+      cell_t *arg1 = CAR(args);
+      if (!ISPORT(arg1)) { die("get-byte requires a port"); }
+      int ch = getc_(arg1->_value.port);
+      if (ch == EOF) { _RETURN s->eof; }
+      cell_t *tmp = surd_new_cell(s);
+      surd_num_init(s, tmp, ch);
+      _RETURN tmp;
     }
     case PRIM_PUTBYTE: {
-      fprintf(stderr, "put-byte not implemented\n");
-      exit(1);
+      cell_t *arg1 = CAR(args);
+      cell_t *arg2 = CAR(CDR(args));
+      if (!ISFIXNUM(arg1) || !ISPORT(arg2)) { die("put-byte requires fixnum and port"); }
+      putc_(arg2->_value.port, arg1->_value.num);
+      _RETURN arg1;
+    }
+    case PRIM_PUTSTR: {
+      cell_t *arg1 = CAR(args);
+      cell_t *arg2 = CAR(CDR(args));
+      if (!ISSTR(arg1) || !ISPORT(arg2)) { die("put-str requires string and port"); }
+      for (size_t i = 0; i < arg1->_value.str.length; i++) {
+        putc_(arg2->_value.port, arg1->_value.str.buffer[i]);
+      }
+      _RETURN arg1;
+    }
     }
     default:
       fprintf(stderr,"unknown primitive\n");
