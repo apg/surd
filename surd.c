@@ -180,6 +180,8 @@ struct surd {
   cell_t *LAM;
   cell_t *DEF;
   cell_t *TRUE;
+  cell_t *BEG;
+
   int load_depth;
 };
 
@@ -400,6 +402,7 @@ surd_init(void)
   s->DEF = surd_intern(s, "def");
   s->QUOTE = surd_intern(s, "quote");
   s->TRUE = surd_intern(s, "true");
+  s->BEG = surd_intern(s, "beg");
 
   cell_t *sym, *prim;
 
@@ -1376,6 +1379,15 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
         _RETURN s->nil;
       }
     }
+    else if (surd_symbol_equal(s, car, s->BEG)) {
+      cell_t *rest = CDR(exp);
+      cell_t *result = s->nil;
+      while (rest != s->nil) {
+        result = eval_loop(s, CAR(rest), env, 0);
+        rest = CDR(rest);
+      }
+      _RETURN result;
+    }
     else {
       // apply
       cell_t *op = eval_loop(s, car, env, 0);
@@ -1404,12 +1416,22 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
       else if (ISFOREIGN(op)) {
         _RETURN apply_foreign(s, op, args);
       }
-
-      cell_t *code = op->_value.closure.code;
-      frame_t *cenv = op->_value.closure.env;
-      env = _env_extend(s, cenv, surd_car(s, surd_cdr(s, code)), args);
-      exp = surd_car(s, surd_cdr(s, surd_cdr(s, code)));
-      goto recur;
+      else if (ISCLOSURE(op)) {
+        cell_t *code = op->_value.closure.code;
+        frame_t *cenv = op->_value.closure.env;
+        env = _env_extend(s, cenv, surd_car(s, surd_cdr(s, code)), args);
+        cell_t *body_exprs = surd_cdr(s, surd_cdr(s, code));
+        if (CDR(body_exprs) != s->nil) {
+          exp = surd_cons(s, s->BEG, body_exprs);
+        } else {
+          exp = surd_car(s, body_exprs);
+        }
+        goto recur;
+      }
+      else {
+        die("operator is not a procedure");
+        _RETURN s->nil;
+      }
     }
   }
   _RETURN s->nil;
