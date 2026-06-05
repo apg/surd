@@ -1268,6 +1268,7 @@ repl(surd_t *s)
   }
 }
 
+#ifndef TEST_BUILD
 int
 main(int argc, char *argv[])
 {
@@ -1304,3 +1305,4 @@ main(int argc, char *argv[])
   print_profiler_report();
   return 0;
 }
+#endif

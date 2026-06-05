@@ -5,8 +5,8 @@ WARNINGS=-fstack-protector -pedantic -W -Wall -Wbad-function-cast \
 	-Wmissing-declarations -Wmissing-prototypes -Wnested-externs \
 	-Wno-unused-parameter -Wpointer-arith -Wshadow -Wstrict-prototypes \
 	-Wstack-protector -Wswitch -Wundef -Wwrite-strings
-INCLUDES=
-LDFLAGS=-lgc -lm
+INCLUDES=-I/opt/homebrew/include
+LDFLAGS=-L/opt/homebrew/lib -lgc -lm
 CFLAGS=$(DEBUG) $(WARNINGS) $(INCLUDES) $(RELEASE) -std=c99
 PREFIX?=/usr/local
 

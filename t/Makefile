@@ -1,7 +1,6 @@
-CFLAGS = -g -Wall
-LDFLAGS = -lgc
+CFLAGS = -g -Wall -I../ -I/opt/homebrew/include -DTEST_BUILD
+LDFLAGS = -L/opt/homebrew/lib -lgc -lm
 DEPS = ../surd.c
-
 TESTS = test_reader test_primitives test_eval
 
 check: $(TESTS)
@@ -17,4 +16,4 @@ test_eval: test_eval.c
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(DEPS) $<
 
 clean:
-	rm $(TESTS)
+	rm -f $(TESTS)
