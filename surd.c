@@ -6,6 +6,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <time.h>
+#include <unistd.h>
 #include <gc.h>
 #include "surd.h"
 
@@ -24,10 +25,6 @@ typedef enum {
   TERROR=0x100,
   TPORT=0x200,
 } type_t;
-
-#define TYPE_BITS 16
-#define TATOMIC (TFIXNUM | TSYMBOL | TNIL)
-#define TYPE(c) (c->flags & ((1 << (TYPE_BITS+1)) - 1))
 
 struct cell {
   unsigned int flags;
@@ -183,6 +180,7 @@ struct surd {
   cell_t *LAM;
   cell_t *DEF;
   cell_t *TRUE;
+  int load_depth;
 };
 
 enum SURD_PRIMITIVES {
@@ -195,6 +193,7 @@ enum SURD_PRIMITIVES {
   PRIM_EOFP,
   PRIM_FIXNUMP,
   PRIM_SYMBOLP,
+  PRIM_STRINGP,
   PRIM_PROCEDUREP,
   PRIM_CLOSUREP,
   PRIM_PRIMITIVEP,
@@ -213,6 +212,8 @@ enum SURD_PRIMITIVES {
   PRIM_GETBYTE,
   PRIM_PUTBYTE,
   PRIM_PUTSTR,
+  PRIM_LOAD,
+  PRIM_STRLEN,
 };
 
 #define ISNIL(c) (c == (cell_t *)0)
@@ -276,7 +277,7 @@ _setcdr(surd_t *s, cell_t *cons, cell_t *cdr)
   die("can't setcdr of non-cons");
 }
 
-cell_t *
+frame_t *
 surd_env(surd_t *s)
 { PROFILE_START();
 
@@ -425,6 +426,7 @@ surd_init(void)
   INSTALL_PRIMITIVE("eof?", PRIM_EOFP, 1);
   INSTALL_PRIMITIVE("fixnum?", PRIM_FIXNUMP, 1);
   INSTALL_PRIMITIVE("symbol?", PRIM_SYMBOLP, 1);
+  INSTALL_PRIMITIVE("string?", PRIM_STRINGP, 1);
   INSTALL_PRIMITIVE("procedure?", PRIM_PROCEDUREP, 1);
   INSTALL_PRIMITIVE("closure?", PRIM_CLOSUREP, 1);
   INSTALL_PRIMITIVE("primitive?", PRIM_PRIMITIVEP, 1);
@@ -447,6 +449,7 @@ surd_init(void)
   INSTALL_PRIMITIVE("put-byte", PRIM_PUTBYTE, 2);
   INSTALL_PRIMITIVE("put-str", PRIM_PUTSTR, 2);
   INSTALL_PRIMITIVE("load", PRIM_LOAD, 1);
+  INSTALL_PRIMITIVE("strlen", PRIM_STRLEN, 1);
 
 #undef INSTALL_PRIMITIVE
 
@@ -459,6 +462,8 @@ surd_init(void)
   INSTALL_STD_PORT("stderr", STDERR_FILENO, "w");
 
 #undef INSTALL_STD_PORT
+
+  s->load_depth = 0;
 
   _RETURN s;
 }
@@ -755,6 +760,7 @@ trynumber(const char *buf, int bufi, long int *iout, double *flout)
 
 static cell_t *readlist_(surd_t *s, struct port *in);
 static cell_t *readstring_(surd_t *s, struct port *in);
+static cell_t *readchar_(surd_t *s, struct port *in);
 
 static cell_t *
 read_(surd_t *s, struct port *in)
@@ -779,6 +785,7 @@ read_(surd_t *s, struct port *in)
       _RETURN surd_cons(s, sym, tmp2);
     }
     case '"': _RETURN readstring_(s, in);
+    case '#': _RETURN readchar_(s, in);
     case '(':
       _RETURN readlist_(s, in);
     default: {
@@ -868,7 +875,6 @@ readstring_(surd_t *s, struct port *in)
     c = getc_(in);
   }
   buf[bufi] = '\0';
-  ungetc_(in, c);
 
   cell_t *str = surd_new_cell(s);
   str->flags = TSTRING;
@@ -879,9 +885,52 @@ readstring_(surd_t *s, struct port *in)
 #undef STRLEN
 }
 
+static cell_t *
+readchar_(surd_t *s, struct port *in)
+{ PROFILE_START();
+
+  int c2 = getc_(in);
+  if (c2 != '\\') {
+    fprintf(stderr, "read: unexpected #%c\n", c2);
+    exit(1);
+  }
+  /* read character name or single character */
+  char buf[16];
+  int bufi = 0;
+  int c3 = getc_(in);
+  if (c3 == EOF) { _RETURN s->eof; }
+  buf[bufi++] = c3;
+  /* is this a named character? */
+  c3 = getc_(in);
+  while (c3 != EOF && !strchr(READ_DELIMS, c3)) {
+    if (bufi < 15) buf[bufi++] = c3;
+    c3 = getc_(in);
+  }
+  ungetc_(in, c3);
+  buf[bufi] = '\0';
+  int chval;
+  if (bufi == 1) {
+    chval = (unsigned char)buf[0];
+  } else if (strcmp(buf, "space") == 0)     { chval = ' '; }
+  else if (strcmp(buf, "newline") == 0)      { chval = '\n'; }
+  else if (strcmp(buf, "tab") == 0)          { chval = '\t'; }
+  else if (strcmp(buf, "return") == 0)       { chval = '\r'; }
+  else if (strcmp(buf, "nul") == 0)          { chval = '\0'; }
+  else if (strcmp(buf, "backspace") == 0)    { chval = '\b'; }
+  else if (strcmp(buf, "delete") == 0)       { chval = 127; }
+  else if (strcmp(buf, "escape") == 0)       { chval = 27; }
+  else if (strcmp(buf, "page") == 0)         { chval = '\f'; }
+  else {
+    fprintf(stderr, "read: unknown character name: #\\%s\n", buf);
+    exit(1);
+  }
+  cell_t *tmp = surd_new_cell(s);
+  surd_num_init(s, tmp, chval);
+  _RETURN tmp;
+}
+
 #undef READ_DELIMS
 #undef READ_WHITESPACE
-
 
 cell_t *
 surd_read(surd_t *s, FILE *in)
@@ -899,8 +948,8 @@ surd_read(surd_t *s, FILE *in)
   _RETURN tmp;
 }
 
-void
-surd_display(surd_t *s, FILE *out, cell_t *exp)
+static void
+write_cell_(surd_t *s, FILE *out, cell_t *exp, int quote_strings)
 { PROFILE_START();
 
   int sep = 0;
@@ -915,18 +964,35 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
   else if (ISSYM(exp)) {
     fprintf(out, "%s", internpool_tostring(s->interns, exp->_value.num));
   }
+  else if (ISSTR(exp)) {
+    if (quote_strings) {
+      fprintf(out, "\"");
+      for (size_t i = 0; i < exp->_value.str.length; i++) {
+        char c = exp->_value.str.buffer[i];
+        if (c == '"') { fprintf(out, "\\\""); }
+        else if (c == '\\') { fprintf(out, "\\\\"); }
+        else if (c == '\n') { fprintf(out, "\\n"); }
+        else if (c == '\t') { fprintf(out, "\\t"); }
+        else { fprintf(out, "%c", c); }
+      }
+      fprintf(out, "\"");
+    } else {
+      for (size_t i = 0; i < exp->_value.str.length; i++) {
+        fprintf(out, "%c", exp->_value.str.buffer[i]);
+      }
+    }
+  }
   else if (ISCONS(exp)) {
     fprintf(out, "(");
     tmp = exp;
     while (tmp != s->nil) {
       if (sep) { fprintf(out, " "); }
-      // might not be a list.
       if (ISCONS(tmp)) {
-        surd_display(s, out, CAR(tmp));
+        write_cell_(s, out, CAR(tmp), quote_strings);
         tmp = CDR(tmp);
       }
       else {
-        surd_display(s, out, tmp);
+        write_cell_(s, out, tmp, quote_strings);
         break;
       }
       sep = 1;
@@ -948,11 +1014,15 @@ surd_display(surd_t *s, FILE *out, cell_t *exp)
 }
 
 void
+surd_display(surd_t *s, FILE *out, cell_t *exp)
+{ PROFILE_START();
+  write_cell_(s, out, exp, 0);
+}
+
+void
 surd_write(surd_t *s, FILE *out, cell_t *exp)
 { PROFILE_START();
-
-  /* XXX: not correct, but we'll take it for now. */
-  surd_display(s, out, exp);
+  write_cell_(s, out, exp, 1);
 }
 
 /* static cell_t * */
@@ -964,6 +1034,10 @@ surd_write(surd_t *s, FILE *out, cell_t *exp)
 static cell_t *
 apply_prim(surd_t *s, cell_t *prim, cell_t *args)
 { PROFILE_START();
+
+  // how many times can we recurse in `load`? simple way to prevent
+  // cycles
+#define MAX_LOAD_DEPTH 10
 
   int carity = surd_list_length(s, args);
   if (carity == prim->_value.primitive.arity ||
@@ -977,7 +1051,15 @@ apply_prim(surd_t *s, cell_t *prim, cell_t *args)
       if (ISCONS(arg1)) {
         _RETURN CAR(arg1);
       }
-      die("cons required for primitive first");
+      if (ISSTR(arg1)) {
+        if (arg1->_value.str.length == 0) {
+          _RETURN s->nil;
+        }
+        cell_t *tmp = surd_new_cell(s);
+        surd_num_init(s, tmp, (unsigned char)arg1->_value.str.buffer[0]);
+        _RETURN tmp;
+      }
+      die("cons or string required for primitive first");
       _RETURN s->nil;
     }
     case PRIM_REST: {
@@ -985,7 +1067,17 @@ apply_prim(surd_t *s, cell_t *prim, cell_t *args)
       if (ISCONS(arg1)) {
         _RETURN CDR(arg1);
       }
-      die("cons required for primitive rest");
+      if (ISSTR(arg1)) {
+        if (arg1->_value.str.length == 0) {
+          _RETURN s->nil;
+        }
+        cell_t *str = surd_new_cell(s);
+        str->flags = TSTRING;
+        str->_value.str.buffer = strdup(arg1->_value.str.buffer + 1);
+        str->_value.str.length = arg1->_value.str.length - 1;
+        _RETURN str;
+      }
+      die("cons or string required for primitive rest");
       _RETURN s->nil;
     }
     case PRIM_NTH: {
@@ -1017,6 +1109,8 @@ apply_prim(surd_t *s, cell_t *prim, cell_t *args)
       _RETURN ISFIXNUM(CAR(args)) ? s->t : s->nil;
     case PRIM_SYMBOLP:
       _RETURN ISSYM(CAR(args)) ? s->t : s->nil;
+    case PRIM_STRINGP:
+      _RETURN ISSTR(CAR(args)) ? s->t : s->nil;
     case PRIM_PROCEDUREP: {
       cell_t *arg1 = CAR(args);
       _RETURN (ISPRIM(arg1) || ISCLOSURE(arg1) || ISFOREIGN(arg1)) ?
@@ -1175,6 +1269,27 @@ apply_prim(surd_t *s, cell_t *prim, cell_t *args)
       }
       _RETURN arg1;
     }
+    case PRIM_LOAD: {
+      cell_t *arg1 = CAR(args);
+      if (!ISSTR(arg1)) { die("load requires a string filename"); }
+      if (s->load_depth >= 10) { die("load depth exceeded (max 10)"); }
+      FILE *f = fopen(arg1->_value.str.buffer, "r");
+      if (!f) { die("could not open file for load"); }
+      s->load_depth++;
+      cell_t *result = surd_load(s, f);
+      s->load_depth--;
+      fclose(f);
+      _RETURN result ? result : s->nil;
+    }
+    case PRIM_STRLEN: {
+      cell_t *arg1 = CAR(args);
+      if (ISSTR(arg1)) {
+        cell_t *tmp = surd_new_cell(s);
+        surd_num_init(s, tmp, arg1->_value.str.length);
+        _RETURN tmp;
+      }
+      die("strlen requires a string");
+      _RETURN s->nil;
     }
     default:
       fprintf(stderr,"unknown primitive\n");
@@ -1183,6 +1298,8 @@ apply_prim(surd_t *s, cell_t *prim, cell_t *args)
   }
   die("arity mismatch");
   _RETURN s->nil;
+
+#undef MAX_LOAD_DEPTH
 }
 
 static cell_t *
@@ -1200,7 +1317,7 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
 
   for (;;) {
   recur:
-    if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || exp == s->nil) {
+    if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || ISSTR(exp) || exp == s->nil) {
       _RETURN exp;
     }
     else if (ISSYM(exp)) {
@@ -1362,8 +1479,9 @@ main(int argc, char *argv[])
     in = fopen(argv[1], "r");
     if (in != NULL) {
       clock_gettime(CLOCK_MONOTONIC, &start);
+      surd->load_depth++;
       surd_load(surd, in);
-
+      surd->load_depth--;
       clock_gettime(CLOCK_MONOTONIC, &end);
       long sec = end.tv_sec - start.tv_sec;
       long nsec = end.tv_nsec - start.tv_nsec;
