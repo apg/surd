@@ -5,3 +5,4 @@ surd
 t/test_eval
 t/test_primitives
 t/test_reader
+*.dSYM
