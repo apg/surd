@@ -11,7 +11,7 @@ typedef struct surd surd_t;
 
 surd_t *surd_init(void);
 void surd_destroy(surd_t *);
-cell_t *surd_env(surd_t *);
+frame_t *surd_env(surd_t *);
 
 void surd_install_foreign(surd_t *, const char *name,
                           cell_t *(*func)(surd_t *, cell_t *), int arity);
