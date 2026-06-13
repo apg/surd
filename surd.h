@@ -4,7 +4,9 @@
 // Rob Pike says I shouldn't do this...
 // http://doc.cat-v.org/bell_labs/pikestyle
 #include <stdio.h>
+#include <stdint.h>
 
+typedef uint64_t surd_value;
 typedef struct cell cell_t;
 typedef struct frame frame_t;
 typedef struct surd surd_t;
@@ -14,38 +16,44 @@ void surd_destroy(surd_t *);
 frame_t *surd_env(surd_t *);
 
 void surd_install_foreign(surd_t *, const char *name,
-                          cell_t *(*func)(surd_t *, cell_t *), int arity);
-cell_t *surd_new_cell(surd_t *);
-cell_t *surd_cons(surd_t *, cell_t *car, cell_t *cdr);
-int surd_list_length(surd_t *s, cell_t *c);
-cell_t *surd_car(surd_t *, cell_t *cns);
-cell_t *surd_cdr(surd_t *, cell_t *cns);
-cell_t *surd_make_closure(surd_t *, cell_t *code, frame_t *env);
-cell_t *surd_eval(surd_t *, cell_t *exp, frame_t *env, int top);
-cell_t *surd_apply(surd_t *, cell_t *closure, cell_t *args);
-cell_t *surd_make_port(surd_t *, FILE *p);
+                          surd_value (*func)(surd_t *, surd_value), int arity);
+surd_value surd_box(surd_t *, surd_value v);
+surd_value surd_unbox(surd_t *, surd_value b);
+surd_value surd_setbox(surd_t *, surd_value b, surd_value v);
 
-void surd_num_init(surd_t *, cell_t *c, int value);
-cell_t *surd_intern(surd_t *, const char *value);
-int surd_symbol_equal(surd_t *, const cell_t *l, const cell_t *r);
+surd_value surd_cons(surd_t *, surd_value car, surd_value cdr);
 
-int surd_is_nil(surd_t *, const cell_t *l);
-int surd_is_true(surd_t *, const cell_t *l);
-int surd_is_eof(surd_t *, const cell_t *l);
-int surd_is_symbol(surd_t *s, const cell_t *t);
-int surd_is_fixnum(surd_t *s, const cell_t *t);
-int surd_is_string(surd_t *s, const cell_t *t);
-int surd_is_cons(surd_t *s, const cell_t *t);
-int surd_is_closure(surd_t *s, const cell_t *t);
-int surd_is_primitive(surd_t *s, const cell_t *t);
-int surd_is_foreign(surd_t *s, const cell_t *t);
+int surd_list_length(surd_t *s, surd_value c);
+surd_value surd_car(surd_t *, surd_value cns);
+surd_value surd_cdr(surd_t *, surd_value cns);
+surd_value surd_make_closure(surd_t *, surd_value code, frame_t *env);
+surd_value surd_eval(surd_t *, surd_value exp, frame_t *env, int top);
+surd_value surd_apply(surd_t *, surd_value closure, surd_value args);
+surd_value surd_make_port(surd_t *, FILE *p);
 
-int surd_as_int(surd_t *s, const cell_t *t, int *result);
+surd_value surd_fixnum(surd_t *s, int64_t value);
+surd_value surd_nil(surd_t *s);
+surd_value surd_intern(surd_t *, const char *value);
+int surd_symbol_equal(surd_t *, surd_value l, surd_value r);
 
-cell_t *surd_read(surd_t *, FILE *in);
-void surd_display(surd_t *, FILE *out, cell_t *exp);
-void surd_write(surd_t *, FILE *out, cell_t *exp);
+int surd_is_nil(surd_t *, surd_value l);
+int surd_is_true(surd_t *, surd_value l);
+int surd_is_eof(surd_t *, surd_value l);
+int surd_is_box(surd_t *s, surd_value t);
+int surd_is_symbol(surd_t *s, surd_value t);
+int surd_is_fixnum(surd_t *s, surd_value t);
+int surd_is_string(surd_t *s, surd_value t);
+int surd_is_cons(surd_t *s, surd_value t);
+int surd_is_closure(surd_t *s, surd_value t);
+int surd_is_primitive(surd_t *s, surd_value t);
+int surd_is_foreign(surd_t *s, surd_value t);
 
-cell_t *surd_load(surd_t *, FILE *in);
+int surd_as_int(surd_t *s, surd_value t, int64_t *result);
+
+surd_value surd_read(surd_t *, FILE *in);
+void surd_display(surd_t *, FILE *out, surd_value exp);
+void surd_write(surd_t *, FILE *out, surd_value exp);
+
+surd_value surd_load(surd_t *, FILE *in);
 
 #endif

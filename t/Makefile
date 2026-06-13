@@ -17,3 +17,4 @@ test_eval: test_eval.c
 
 clean:
 	rm -f $(TESTS)
+	rm -rf *.dSYM

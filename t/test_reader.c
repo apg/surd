@@ -8,7 +8,7 @@ void
 test_read_nil(surd_t *s)
 {
   FILE *in;
-  cell_t *c;
+  surd_value c;
 
   in = fopen("code/reader_nil.surd", "r");
   if (in) {
@@ -22,14 +22,14 @@ test_read_nil(surd_t *s)
 void
 test_read_fixnums(surd_t *s)
 {
-  int actual[] = {
+  int64_t actual[] = {
     1, 2, 100, -390, -9, 1, 2, 123456789
   };
   int nums_to_check = 8;
   int i = 0;
   FILE *in;
-  cell_t *c;
-  cell_t *current;
+  surd_value c;
+  surd_value current;
 
   in = fopen("code/reader_fixnums.surd", "r");
   if (in) {
@@ -39,7 +39,7 @@ test_read_fixnums(surd_t *s)
       IS(i < nums_to_check, "read more numbers than expected");
       current = surd_car(s, c);
       IS(surd_is_fixnum(s, current), "not a fixnum -- predicate");
-      int value = 0;
+      int64_t value = 0;
       IS(surd_as_int(s, current, &value), "couldn't get fixnum value");
       ISEQ(value, actual[i], "fixnums: value not the same as actual ");
       i++;
@@ -52,14 +52,11 @@ test_read_fixnums(surd_t *s)
 void
 test_read_strings(surd_t *s)
 {
-  /* char *actual[] = { */
-  /*   "\"hello world\"", */
-  /* }; */
   int strs_to_check = 1;
   int i = 0;
   FILE *in;
-  cell_t *c;
-  cell_t *current; //, *str;
+  surd_value c;
+  surd_value current;
 
   in = fopen("code/reader_strings.surd", "r");
   if (in) {
@@ -69,7 +66,6 @@ test_read_strings(surd_t *s)
       IS(i < strs_to_check, "read more strings than expected");
       current = surd_car(s, c);
       IS(!surd_is_string(s, current), "not a string");
-      //      ISEQ(strcmp(actual[i], sym->_value.str.buffer), 0, "value not same as actual");
       i++;
       c = surd_cdr(s, c);
     }
@@ -97,8 +93,8 @@ test_read_symbols(surd_t *s)
   int syms_to_check = 10;
   int i = 0;
   FILE *in;
-  cell_t *c;
-  cell_t *current, *sym;
+  surd_value c;
+  surd_value current, sym;
 
   in = fopen("code/reader_symbols.surd", "r");
   if (in) {
@@ -109,9 +105,7 @@ test_read_symbols(surd_t *s)
       current = surd_car(s, c);
       sym = surd_intern(s, actual[i]);
       IS(surd_is_symbol(s, current), "not a symbol");
-      int left = 0; int right = 0;
-      IS(surd_as_int(s, current, &left) && surd_as_int(s, sym, &right), "symbols: value not the same as actual");
-      ISEQ(left, right, "symbol values are not the same");
+      IS(surd_symbol_equal(s, current, sym), "symbols are not equal");
       i++;
       c = surd_cdr(s, c);
     }

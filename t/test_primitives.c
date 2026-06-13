@@ -4,13 +4,13 @@
 #include "../surd.h"
 #include "tests.h"
 
-static cell_t *
+static surd_value
 eval_expr(surd_t *s, const char *code)
 {
   FILE *f = fmemopen((void *)code, strlen(code), "r");
-  cell_t *exp = surd_read(s, f);
+  surd_value exp = surd_read(s, f);
   fclose(f);
-  if (!exp) return NULL;
+  if (!exp) return 0;
   return surd_eval(s, exp, surd_env(s), 0);
 }
 
@@ -19,8 +19,8 @@ test_arithmetic(surd_t *s)
 {
   fprintf(stderr, "Testing arithmetic primitives...\n");
 
-  cell_t *result = eval_expr(s, "(+ 10 32)");
-  int val = 0;
+  surd_value result = eval_expr(s, "(+ 10 32)");
+  int64_t val = 0;
   if (surd_is_fixnum(s, result) && surd_as_int(s, result, &val) && val == 42) {
     SUCCESSES++;
   } else {
@@ -66,7 +66,7 @@ test_comparison(surd_t *s)
 {
   fprintf(stderr, "Testing comparison primitives...\n");
 
-  cell_t *result = eval_expr(s, "(< 1 2)");
+  surd_value result = eval_expr(s, "(< 1 2)");
   if (surd_is_true(s, result)) {
     SUCCESSES++;
   } else {
@@ -104,7 +104,7 @@ test_cons_operations(surd_t *s)
 {
   fprintf(stderr, "Testing cons operations...\n");
 
-  cell_t *result = eval_expr(s, "(cons 1 '())");
+  surd_value result = eval_expr(s, "(cons 1 '())");
   if (surd_is_cons(s, result)) {
     SUCCESSES++;
   } else {
@@ -113,7 +113,7 @@ test_cons_operations(surd_t *s)
   }
 
   result = eval_expr(s, "(first (cons 42 '()))");
-  int val = 0;
+  int64_t val = 0;
   if (surd_is_fixnum(s, result) && surd_as_int(s, result, &val) && val == 42) {
     SUCCESSES++;
   } else {
@@ -143,7 +143,7 @@ test_type_predicates(surd_t *s)
 {
   fprintf(stderr, "Testing type predicates...\n");
 
-  cell_t *result = eval_expr(s, "(fixnum? 42)");
+  surd_value result = eval_expr(s, "(fixnum? 42)");
   if (surd_is_true(s, result)) {
     SUCCESSES++;
   } else {
@@ -197,7 +197,7 @@ test_closure(surd_t *s)
 {
   fprintf(stderr, "Testing closure operations...\n");
 
-  cell_t *result = eval_expr(s, "(closure? (lam (x) x))");
+  surd_value result = eval_expr(s, "(closure? (lam (x) x))");
   if (surd_is_true(s, result)) {
     SUCCESSES++;
   } else {
@@ -206,7 +206,7 @@ test_closure(surd_t *s)
   }
 
   result = eval_expr(s, "((lam (x) (+ x 1)) 41)");
-  int val = 0;
+  int64_t val = 0;
   if (surd_is_fixnum(s, result) && surd_as_int(s, result, &val) && val == 42) {
     SUCCESSES++;
   } else {
@@ -237,7 +237,7 @@ test_io(surd_t *s)
   }
 
   // Create a surd port from the FILE*
-  cell_t *port = surd_make_port(s, str);
+  surd_value port = surd_make_port(s, str);
   if (!port) {
     FAILURES++;
     fprintf(stderr, "  FAILURE: surd_make_port failed\n");
@@ -245,13 +245,7 @@ test_io(surd_t *s)
     return;
   }
 
-  // Test put-byte: write 'A' (65) and 'B' (66)
-  cell_t *byte_a = surd_new_cell(s);
-  surd_num_init(s, byte_a, 65);
-  cell_t *byte_b = surd_new_cell(s);
-  surd_num_init(s, byte_b, 66);
-
-  cell_t *putbyte_result = eval_expr(s, "(put-byte 65 stdout)");
+  surd_value putbyte_result = eval_expr(s, "(put-byte 65 stdout)");
   if (surd_is_fixnum(s, putbyte_result)) {
     SUCCESSES++;
   } else {
@@ -269,7 +263,7 @@ test_eof(surd_t *s)
 {
   fprintf(stderr, "Testing eof? predicate...\n");
 
-  cell_t *result = eval_expr(s, "(eof? 42)");
+  surd_value result = eval_expr(s, "(eof? 42)");
   if (surd_is_nil(s, result)) {
     SUCCESSES++;
   } else {
@@ -284,8 +278,8 @@ test_close(surd_t *s)
   fprintf(stderr, "Testing close primitive...\n");
 
   // Test that close primitive exists
-  cell_t *close_sym = surd_intern(s, "close");
-  cell_t *close_prim = surd_eval(s, close_sym, surd_env(s), 0);
+  surd_value close_sym = surd_intern(s, "close");
+  surd_value close_prim = surd_eval(s, close_sym, surd_env(s), 0);
   if (surd_is_primitive(s, close_prim)) {
     SUCCESSES++;
   } else {
@@ -303,7 +297,7 @@ test_string_operations(surd_t *s)
   fprintf(stderr, "Testing string operations...\n");
 
   // Test string? predicate
-  cell_t *result = eval_expr(s, "(string? \"hello\")");
+  surd_value result = eval_expr(s, "(string? \"hello\")");
   if (surd_is_true(s, result)) {
     SUCCESSES++;
   } else {
@@ -313,7 +307,7 @@ test_string_operations(surd_t *s)
 
   // Test first on non-empty string
   result = eval_expr(s, "(first \"hello\")");
-  int val = 0;
+  int64_t val = 0;
   if (surd_is_fixnum(s, result) && surd_as_int(s, result, &val) && val == 'h') {
     SUCCESSES++;
   } else {
@@ -355,8 +349,8 @@ test_load(surd_t *s)
   fprintf(stderr, "Testing load primitive...\n");
 
   // Test that load primitive exists
-  cell_t *load_sym = surd_intern(s, "load");
-  cell_t *load_prim = surd_eval(s, load_sym, surd_env(s), 0);
+  surd_value load_sym = surd_intern(s, "load");
+  surd_value load_prim = surd_eval(s, load_sym, surd_env(s), 0);
   if (surd_is_primitive(s, load_prim)) {
     SUCCESSES++;
   } else {
@@ -366,6 +360,38 @@ test_load(surd_t *s)
 
   // Simple test - verify primitive is callable (depth tracking is internal)
   SUCCESSES++;
+}
+
+static void
+test_boxes(surd_t *s)
+{
+  fprintf(stderr, "Testing box primitives...\n");
+  surd_value result = eval_expr(s, "(box 1)");
+  if (surd_is_box(s, result)) {
+    SUCCESSES++;
+  } else {
+    FAILURES++;
+    fprintf(stderr, " FAILURE: (box 1) should be a box\n");
+  }
+
+  result = eval_expr(s, "(unbox (box 1))");
+  int64_t val = 0;
+  if (surd_is_fixnum(s, result) && surd_as_int(s, result, &val) && val == 1) {
+    SUCCESSES++;
+  } else {
+    FAILURES++;
+    fprintf(stderr, "  FAILURE: (unbox (box 1)) should be 1\n");
+  }
+
+  result = eval_expr(s, "(unbox (set-box! (box 1) 2))");
+  val = 0;
+  if (surd_is_fixnum(s, result) && surd_as_int(s, result, &val) && val == 2) {
+    SUCCESSES++;
+  } else {
+    FAILURES++;
+    fprintf(stderr, "  FAILURE: (unbox (set-box! (box 1) 2)) should be 2\n");
+  }
+
 }
 
 int
@@ -383,6 +409,7 @@ main(int argc, char *argv[])
   test_close(s);
   test_load(s);
   test_string_operations(s);
+  test_boxes(s);
 
   fprintf(stderr, "  [skipping foreign? - not yet supported]\n");
 

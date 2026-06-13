@@ -5,15 +5,13 @@ Note: I don't know what I'm doing with this, but it's fun to hack on a bit.
 
 ## Memory management
 
-Uses Boehm.
-
-## Features
+Uses Boehm right now, but we'll see. Immediate fixnums and symbols. 
 
 ## Supported Language
 
 ### Types
 
-*Fixnums* are whatever C `int` is on your system.
+*Fixnums* are 63-bit ints.
 
 *Cons Pairs* are a `first` and a `rest` (`car` and `cdr`, traditionally).
 
@@ -21,7 +19,40 @@ Uses Boehm.
 
 *Primitives* are applicables that are completely builtin to the system. Currently:
 
-`cons`, `first`, `rest`, `nth`, `cons?`, `nil?`, `eof?`, `fixnum?`, `symbol?`, `closure?`, `procedure?`, `foreign?`, `+`, `-`, `*`, `/`, `%`, `<`, `=`... 
+* `(cons V1 V2) -> C`
+* `(first C) -> V`
+* `(rest C) -> V|C`
+* `(nth F C) -> V`
+* `(cons? V) -> B`
+* `(nil? V) -> B`
+* `(eof? V) -> B`
+* `(box? V) -> B`
+* `(fixnum? V) -> B`
+* `(symbol? V) -> B`
+* `(string? V) -> B` 
+* `(procedure? V) -> B`
+* `(closure? V) -> B`
+* `(primitive? V) -> B`
+* `(foreign? V) -> B`
+* `(+ F1 F2) -> F`
+* `(- F1 [F2]) -> F`
+* `(* F1 F2) -> F`
+* `(/ F1 F2) -> F`
+* `(% F1 F2) -> F`
+* `(< F1 F2) -> F`
+* `(= V1 V2) -> B`
+* `(read P) -> V`
+* `(write V P) -> V`
+* `(open S S) -> P`
+* `(close P) -> P`
+* `(get-byte P) -> F`
+* `(put-byte F P) -> F`
+* `(put-str STR P) -> STR`
+* `(load STR) -> V`
+* `(strlen STR) -> F`
+* `(box V) -> BX`
+* `(unbox BX) -> V`
+* `(set-box! BX V) -> BX`
 
 *Symbols* as in the traditional Lisp point of view.
 

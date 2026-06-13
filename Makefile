@@ -49,6 +49,3 @@ bench-map-square: surd
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
-
-clean:
-	rm -f surd *.o

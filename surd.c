@@ -7,32 +7,37 @@
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
+#include <inttypes.h>
+#include <stdint.h>
 #include <gc.h>
 #include "surd.h"
 
 #include "profile.h"
 
+#define TAG_BITS 0x7
+#define FIXNUM_TAG 0x1
+#define SYMBOL_TAG 0x6
+#define NIL_VALUE 0x0
+#define TRUE_VALUE 0x2
+#define EOF_VALUE 0x4
+
 typedef enum {
-  TNIL=0x0,
-  TFIXNUM=0x1,
-  TSYMBOL=0x2,
-  TCONS=0x4,
-  TSTRING=0x8,
-  TCLOSURE=0x10, // env goes in cdr, code in car
-  TPRIMITIVE=0x20,
-  TFOREIGN=0x40,
-  TMACRO=0x80,
-  TERROR=0x100,
-  TPORT=0x200,
+  TCONS=0x1,
+  TSTRING=0x2,
+  TCLOSURE=0x4,
+  TPRIMITIVE=0x8,
+  TFOREIGN=0x10,
+  TPORT=0x20,
+  TBOX=0x40,
 } type_t;
 
 struct cell {
   unsigned int flags;
   union {
-    int num;
+    surd_value box;
     struct cons {
-      cell_t *car;
-      cell_t *cdr;
+      surd_value car;
+      surd_value cdr;
     } cons;
     struct str {
       size_t length;
@@ -40,7 +45,7 @@ struct cell {
     } str;
     struct closure {
       frame_t *env;
-      cell_t *code;
+      surd_value code;
     } closure;
     struct primitive {
       int arity;
@@ -48,11 +53,18 @@ struct cell {
     } primitive;
     struct foreign {
       int arity;
-      cell_t *(*cfunc)(surd_t *, cell_t *args);
+      surd_value (*cfunc)(surd_t *, surd_value);
     } foreign;
     struct port *port;
   } _value;
 };
+
+cell_t *
+make_cell(surd_t *s)
+{ PROFILE_START();
+
+  _RETURN GC_malloc(sizeof(cell_t));
+}
 
 struct internpool {
   char *buffer;
@@ -77,8 +89,8 @@ internpool_init(struct internpool *pool)
 }
 
 struct frame {
-  size_t *names; /* symbol offsets */
-  cell_t **values;
+  size_t *names; /* symbol IDs */
+  surd_value *values;
   size_t length;
   size_t capacity;
   struct frame *parent;
@@ -158,7 +170,47 @@ internpool_tostring(struct internpool *pool, size_t offset)
   _RETURN pool->buffer + buffer_offset;
 }
 
+static surd_value
+make_fixnum(int64_t value)
+{
+  return (surd_value)(((uint64_t)value << 1) | FIXNUM_TAG);
+}
 
+static int64_t
+fixnum_of(surd_value fixnum)
+{
+  return (int64_t)fixnum >> 1;
+}
+
+static surd_value
+make_symbol(size_t sym_id)
+{
+  return (surd_value)((sym_id << 3) | SYMBOL_TAG);
+}
+
+static size_t
+symbol_id_of(surd_value sym)
+{
+  return sym >> 3;
+}
+
+static int
+is_ptr(surd_value v)
+{
+  return ((v & TAG_BITS) == 0 && v != 0);
+}
+
+static cell_t *
+cell_of(surd_value v)
+{
+  return (cell_t *)v;
+}
+
+static surd_value
+value_of(cell_t *c)
+{
+  return (surd_value)c;
+}
 
 struct surd {
   /* Symbol table: symbols use cells as well as external memory
@@ -171,16 +223,13 @@ struct surd {
 
   /* Top level environment */
   frame_t *top_env;
-  cell_t *t;
-  cell_t *nil;
-  cell_t *eof;
 
-  cell_t *IF;
-  cell_t *QUOTE;
-  cell_t *LAM;
-  cell_t *DEF;
-  cell_t *TRUE;
-  cell_t *BEG;
+  surd_value IF;
+  surd_value QUOTE;
+  surd_value LAM;
+  surd_value DEF;
+  surd_value BEG;
+  surd_value TRUE;
 
   int load_depth;
 };
@@ -193,6 +242,7 @@ enum SURD_PRIMITIVES {
   PRIM_CONSP,
   PRIM_NILP,
   PRIM_EOFP,
+  PRIM_BOXP,
   PRIM_FIXNUMP,
   PRIM_SYMBOLP,
   PRIM_STRINGP,
@@ -216,20 +266,27 @@ enum SURD_PRIMITIVES {
   PRIM_PUTSTR,
   PRIM_LOAD,
   PRIM_STRLEN,
+  PRIM_BOX,
+  PRIM_UNBOX,
+  PRIM_SETBOX,
 };
 
-#define ISNIL(c) (c == (cell_t *)0)
-#define ISFIXNUM(c) (c != NULL && !ISNIL(c) && c->flags & TFIXNUM)
-#define ISSYM(c) (c != NULL && !ISNIL(c) && c->flags & TSYMBOL)
-#define ISSTR(c) (c != NULL && !ISNIL(c) && c->flags & TSTRING)
-#define ISCONS(c) (c != NULL && !ISNIL(c) && c->flags & TCONS)
-#define ISCLOSURE(c) (c != NULL && !ISNIL(c) && c->flags & TCLOSURE)
-#define ISPRIM(c) (c != NULL && !ISNIL(c) && c->flags & TPRIMITIVE)
-#define ISFOREIGN(c) (c != NULL && !ISNIL(c) && c->flags & TFOREIGN)
-#define ISPORT(c) (c != NULL && !ISNIL(c) && c->flags & TPORT)
+#define ISNIL(v) ((v) == 0)
+#define ISTRUE(v) ((v) == TRUE_VALUE)
+#define ISEOF(v) ((v) == EOF_VALUE)
+#define ISFIXNUM(v) ((v) & 1)
+#define ISSYM(v) (((v) & TAG_BITS) == SYMBOL_TAG)
 
-#define CAR(c) (c->_value.cons.car)
-#define CDR(c) (c->_value.cons.cdr)
+static int ISBOX(surd_value v) { return is_ptr(v) && cell_of(v)->flags & TBOX; }
+static int ISSTR(surd_value v) { return is_ptr(v) && cell_of(v)->flags & TSTRING; }
+static int ISCONS(surd_value v) { return is_ptr(v) && cell_of(v)->flags & TCONS; }
+static int ISCLOSURE(surd_value v) { return is_ptr(v) && cell_of(v)->flags & TCLOSURE; }
+static int ISPRIM(surd_value v) { return is_ptr(v) && cell_of(v)->flags & TPRIMITIVE; }
+static int ISFOREIGN(surd_value v) { return is_ptr(v) && cell_of(v)->flags & TFOREIGN; }
+static int ISPORT(surd_value v) { return is_ptr(v) && cell_of(v)->flags & TPORT; }
+
+#define CAR(c) cell_of(c)->_value.cons.car
+#define CDR(c) cell_of(c)->_value.cons.cdr
 
 static void
 die(const char *msg)
@@ -239,41 +296,41 @@ die(const char *msg)
 }
 
 
-cell_t *
-surd_car(surd_t *s, cell_t *c)
+surd_value
+surd_car(surd_t *s, surd_value c)
 { PROFILE_START();
 
   if (ISCONS(c)) { _RETURN CAR(c); }
   die("can't take car of non-cons");
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
 }
 
-cell_t *
-surd_cdr(surd_t *s, cell_t *c)
+surd_value
+surd_cdr(surd_t *s, surd_value c)
 { PROFILE_START();
 
   if (ISCONS(c)) { _RETURN CDR(c); }
   die("can't take cdr of non-cons");
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
 }
 
 static void
-_setcar(surd_t *s, cell_t *cons, cell_t *car)
+_setcar(surd_t *s, surd_value cons, surd_value car)
 { PROFILE_START();
 
-  if (cons != s->nil && cons->flags == TCONS) {
-    cons->_value.cons.car = car;
+  if (ISCONS(cons)) {
+    cell_of(cons)->_value.cons.car = car;
     _RETURN;
   }
   die("can't setcar of non-cons");
 }
 
 static void
-_setcdr(surd_t *s, cell_t *cons, cell_t *cdr)
+_setcdr(surd_t *s, surd_value cons, surd_value cdr)
 { PROFILE_START();
 
-  if (cons != s->nil && cons->flags == TCONS) {
-    cons->_value.cons.cdr = cdr;
+  if (ISCONS(cons)) {
+    cell_of(cons)->_value.cons.cdr = cdr;
     _RETURN;
   }
   die("can't setcdr of non-cons");
@@ -286,22 +343,23 @@ surd_env(surd_t *s)
   _RETURN s->env;
 }
 
-static cell_t *
-_env_lookup(surd_t *s, frame_t *env, cell_t *sym)
+static surd_value
+_env_lookup(surd_t *s, frame_t *env, surd_value sym)
 { PROFILE_START();
 
   frame_t *envs[] = { env, s->top_env };
 
   if (!ISSYM(sym)) {
     die("attempt to lookup non-symbol");
-    _RETURN s->nil;
+    _RETURN NIL_VALUE;
   }
 
+  size_t sym_id = symbol_id_of(sym);
   for (size_t i = 0; i < 2; i++) {
     frame_t *tmp = envs[i];
     while (tmp != NULL) {
       for (size_t j = 0; j < tmp->length; j++) {
-        if (sym->_value.num == (int)tmp->names[j]) {
+        if (sym_id == tmp->names[j]) {
           _RETURN tmp->values[j];
         }
       }
@@ -310,11 +368,11 @@ _env_lookup(surd_t *s, frame_t *env, cell_t *sym)
   }
 
   die("symbol not found");
-  return s->nil;
+  return 0;
 }
 
 static void
-_env_insert(surd_t *s, frame_t *env, cell_t *sym, cell_t *value)
+_env_insert(surd_t *s, frame_t *env, surd_value sym, surd_value value)
 { PROFILE_START();
 #define INITIAL_FRAME_CAPACITY 4
 
@@ -325,22 +383,22 @@ _env_insert(surd_t *s, frame_t *env, cell_t *sym, cell_t *value)
   if (env->length >= env->capacity) {
     size_t new_cap = env->capacity ?
       env->capacity * 2: INITIAL_FRAME_CAPACITY;
-    env->names = GC_realloc(env->names, sizeof(env->names) * new_cap);
-    env->values = GC_realloc(env->values, sizeof(env->names) * new_cap);
+    env->names = GC_realloc(env->names, sizeof(size_t) * new_cap);
+    env->values = GC_realloc(env->values, sizeof(surd_value) * new_cap);
     env->capacity = new_cap;
   }
 
-  env->names[env->length] = sym->_value.num;
+  env->names[env->length] = symbol_id_of(sym);
   env->values[env->length] = value;
   env->length++;
   _RETURN;
 }
 
 static frame_t *
-_env_extend(surd_t *s, frame_t *env, cell_t *params, cell_t *args)
+_env_extend(surd_t *s, frame_t *env, surd_value params, surd_value args)
 { PROFILE_START();
 
-  cell_t *sym, *val;
+  surd_value sym, val;
 
   frame_t *result = GC_malloc(sizeof(*result));
   frame_init(result);
@@ -348,14 +406,14 @@ _env_extend(surd_t *s, frame_t *env, cell_t *params, cell_t *args)
   result->parent = env;
 
   for (;;) {
-    if (params == s->nil && args == s->nil) {
+    if (ISNIL(params) && ISNIL(args)) {
       break;
     }
-    else if (params == s->nil && args != s->nil) {
+    else if (ISNIL(params) && !ISNIL(args)) {
       die("too many arguments");
       _RETURN NULL;
     }
-    else if (args == s->nil && params != s->nil) {
+    else if (ISNIL(args) && !ISNIL(params)) {
       die("too few arguments");
       _RETURN NULL;
     }
@@ -387,10 +445,6 @@ surd_init(void)
 
   s->interns = interns;
 
-  s->nil = (cell_t *)0;
-  s->t = (cell_t *)1;
-  s->eof = (cell_t *)2;
-
   s->env = NULL;
 
   frame_t *top_env = GC_malloc(sizeof(*top_env));
@@ -401,18 +455,18 @@ surd_init(void)
   s->LAM = surd_intern(s, "lam");
   s->DEF = surd_intern(s, "def");
   s->QUOTE = surd_intern(s, "quote");
-  s->TRUE = surd_intern(s, "true");
   s->BEG = surd_intern(s, "beg");
+  s->TRUE = surd_intern(s, "true");
 
-  cell_t *sym, *prim;
+  surd_value sym, prim;
 
 #define INSTALL_PRIMITIVE(NAME, NUM, ARITY) \
   sym = surd_intern(s, NAME); \
-  prim = surd_new_cell(s); \
-  if (prim != s->nil) { \
-    prim->flags = TPRIMITIVE; \
-    prim->_value.primitive.arity = ARITY; \
-    prim->_value.primitive.num = NUM; \
+  prim = value_of(make_cell(s)); \
+  if (!ISNIL(prim)) { \
+    cell_of(prim)->flags = TPRIMITIVE; \
+    cell_of(prim)->_value.primitive.arity = ARITY; \
+    cell_of(prim)->_value.primitive.num = NUM; \
     _env_insert(s, s->top_env, sym, prim); \
   } \
   else { \
@@ -427,6 +481,7 @@ surd_init(void)
   INSTALL_PRIMITIVE("cons?", PRIM_CONSP, 1);
   INSTALL_PRIMITIVE("nil?", PRIM_NILP, 1);
   INSTALL_PRIMITIVE("eof?", PRIM_EOFP, 1);
+  INSTALL_PRIMITIVE("box?", PRIM_BOXP, 1);
   INSTALL_PRIMITIVE("fixnum?", PRIM_FIXNUMP, 1);
   INSTALL_PRIMITIVE("symbol?", PRIM_SYMBOLP, 1);
   INSTALL_PRIMITIVE("string?", PRIM_STRINGP, 1);
@@ -453,12 +508,15 @@ surd_init(void)
   INSTALL_PRIMITIVE("put-str", PRIM_PUTSTR, 2);
   INSTALL_PRIMITIVE("load", PRIM_LOAD, 1);
   INSTALL_PRIMITIVE("strlen", PRIM_STRLEN, 1);
+  INSTALL_PRIMITIVE("box", PRIM_BOX, 1);
+  INSTALL_PRIMITIVE("unbox", PRIM_UNBOX, 1);
+  INSTALL_PRIMITIVE("set-box!", PRIM_SETBOX, 2);
 
 #undef INSTALL_PRIMITIVE
 
 #define INSTALL_STD_PORT(NAME, FD, MODE) \
   sym = surd_intern(s, NAME); \
-  _env_insert(s, s->top_env, sym, make_port_cell(s, fdopen(FD, MODE), 1));
+  _env_insert(s, s->top_env, sym, surd_make_port(s, fdopen(FD, MODE)));
 
   INSTALL_STD_PORT("stdin",  STDIN_FILENO,  "r");
   INSTALL_STD_PORT("stdout", STDOUT_FILENO, "w");
@@ -471,13 +529,6 @@ surd_init(void)
   _RETURN s;
 }
 
-cell_t *
-surd_new_cell(surd_t *s)
-{ PROFILE_START();
-
-  _RETURN GC_malloc(sizeof(cell_t));
-}
-
 void
 surd_destroy(surd_t *s)
 { PROFILE_START();
@@ -485,38 +536,39 @@ surd_destroy(surd_t *s)
   s->env = NULL;
 }
 
-cell_t *
+surd_value
 surd_make_port(surd_t *s, FILE *p)
 { PROFILE_START();
 
-  _RETURN make_port_cell(s, p, 0);
+  _RETURN value_of(make_port_cell(s, p, 0));
 }
 
-void
-surd_num_init(surd_t *s, cell_t *c, int value)
+surd_value
+surd_fixnum(surd_t *s, int64_t value)
 { PROFILE_START();
-
-  c->flags = TFIXNUM;
-  c->_value.num = value;
+  _RETURN make_fixnum(value);
 }
 
-cell_t *
+surd_value
+surd_nil(surd_t *s)
+{ PROFILE_START();
+  _RETURN NIL_VALUE;
+}
+
+surd_value
 surd_intern(surd_t *s, const char *str)
 { PROFILE_START();
 
-  cell_t *c = surd_new_cell(s);
   size_t offset = internpool_intern(s->interns, str);
-  c->flags = TSYMBOL;
-  c->_value.num = offset;
-  _RETURN c;
+  _RETURN make_symbol(offset);
 }
 
 int
-surd_symbol_equal(surd_t *s, const cell_t *left, const cell_t *right)
+surd_symbol_equal(surd_t *s, surd_value left, surd_value right)
 { PROFILE_START();
 
   if (ISSYM(left) && ISSYM(right)) {
-    if (left->_value.num == right->_value.num) {
+    if (symbol_id_of(left) == symbol_id_of(right)) {
       _RETURN 1;
     }
   }
@@ -524,24 +576,24 @@ surd_symbol_equal(surd_t *s, const cell_t *left, const cell_t *right)
   _RETURN 0;
 }
 
-int surd_is_true(surd_t *s, const cell_t *t) { return s->t == t; }
-int surd_is_nil(surd_t *s, const cell_t *t) { return s->nil == t; }
-int surd_is_eof(surd_t *s, const cell_t *t) { return s->eof == t; }
-int surd_is_symbol(surd_t *s, const cell_t *t) { return ISSYM(t); }
-int surd_is_fixnum(surd_t *s, const cell_t *t) { return ISFIXNUM(t); }
-int surd_is_string(surd_t *s, const cell_t *t) { return ISSTR(t); }
-int surd_is_cons(surd_t *s, const cell_t *t) { return ISCONS(t); }
-int surd_is_closure(surd_t *s, const cell_t *t) { return ISCLOSURE(t); }
-int surd_is_primitive(surd_t *s, const cell_t *t) { return ISPRIM(t); }
-int surd_is_foreign(surd_t *s, const cell_t *t) { return ISFOREIGN(t); }
+int surd_is_true(surd_t *s, surd_value t) { return ISTRUE(t); }
+int surd_is_nil(surd_t *s, surd_value t) { return ISNIL(t); }
+int surd_is_eof(surd_t *s, surd_value t) { return ISEOF(t); }
+int surd_is_symbol(surd_t *s, surd_value t) { return ISSYM(t); }
+int surd_is_box(surd_t *s, surd_value t) { return ISBOX(t); }
+int surd_is_fixnum(surd_t *s, surd_value t) { return ISFIXNUM(t); }
+int surd_is_string(surd_t *s, surd_value t) { return ISSTR(t); }
+int surd_is_cons(surd_t *s, surd_value t) { return ISCONS(t); }
+int surd_is_closure(surd_t *s, surd_value t) { return ISCLOSURE(t); }
+int surd_is_primitive(surd_t *s, surd_value t) { return ISPRIM(t); }
+int surd_is_foreign(surd_t *s, surd_value t) { return ISFOREIGN(t); }
 
 int
-surd_as_int(surd_t *s, const cell_t *t, int *result)
+surd_as_int(surd_t *s, surd_value t, int64_t *result)
 { PROFILE_START();
 
-  /* possibly being able to treat a symbol as an int is wrong */
-  if (result != NULL || ISFIXNUM(t) || !ISSYM(t)) {
-    *result = t->_value.num;
+  if (ISFIXNUM(t)) {
+    *result = fixnum_of(t);
     _RETURN 1;
   }
   _RETURN 0;
@@ -550,48 +602,48 @@ surd_as_int(surd_t *s, const cell_t *t, int *result)
 
 void
 surd_install_foreign(surd_t *s, const char *name,
-                     cell_t *(*func)(surd_t *, cell_t *), int arity)
+                     surd_value (*func)(surd_t *, surd_value), int arity)
 { PROFILE_START();
 
-  cell_t *sym = surd_intern(s, name);
-  cell_t *prim = surd_new_cell(s);
-  if (prim != s->nil) {
-    prim->flags = TFOREIGN;
-    prim->_value.foreign.arity = arity;
-    prim->_value.foreign.cfunc = func;
+  surd_value sym = surd_intern(s, name);
+  surd_value prim = value_of(make_cell(s));
+  if (!ISNIL(prim)) {
+    cell_of(prim)->flags = TFOREIGN;
+    cell_of(prim)->_value.foreign.arity = arity;
+    cell_of(prim)->_value.foreign.cfunc = func;
     _env_insert(s, s->top_env, sym, prim);
     _RETURN;
   }
   die("out of memory in surd_install_foreign");
 }
 
-cell_t *
-surd_cons(surd_t *s, cell_t *car, cell_t *cdr)
+surd_value
+surd_cons(surd_t *s, surd_value car, surd_value cdr)
 { PROFILE_START();
 
-  cell_t *new = surd_new_cell(s);
-  if (new != s->nil) {
+  cell_t *new = make_cell(s);
+  if (new != NULL) {
     new->flags = TCONS;
     new->_value.cons.car = car;
     new->_value.cons.cdr = cdr;
-    _RETURN new;
+    _RETURN value_of(new);
   }
 
   die("out of memory in surd_cons");
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
 }
 
 int
-surd_list_length(surd_t *s, cell_t *c)
+surd_list_length(surd_t *s, surd_value c)
 { PROFILE_START();
 
   int len = -1;
-  if (c == s->nil) {
+  if (ISNIL(c)) {
     _RETURN 0;
   }
   else if (ISCONS(c)) {
     len = 0;
-    while (c != s->nil) {
+    while (!ISNIL(c)) {
       if (ISCONS(c)) {
         len++;
         c = CDR(c);
@@ -605,20 +657,51 @@ surd_list_length(surd_t *s, cell_t *c)
   _RETURN len;
 }
 
-cell_t *
-surd_make_closure(surd_t *s, cell_t *code, frame_t *env)
+surd_value
+surd_make_closure(surd_t *s, surd_value code, frame_t *env)
 { PROFILE_START();
 
-  cell_t *new = surd_new_cell(s);
-  if (new != s->nil) {
+  cell_t *new = make_cell(s);
+  if (new != NULL) {
     new->flags = TCLOSURE;
     new->_value.closure.env = env;
     new->_value.closure.code = code;
-    _RETURN new;
+    _RETURN value_of(new);
   }
 
   die("out of memory in surd_make_closure");
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
+}
+
+surd_value surd_box(surd_t *s, surd_value v)
+{ PROFILE_START();
+  cell_t *new = make_cell(s);
+  if (new != NULL) {
+    new->flags = TBOX;
+    new->_value.box = v;
+    _RETURN value_of(new);
+  }
+  die("out of memory in box");
+  _RETURN NIL_VALUE;
+}
+
+surd_value surd_unbox(surd_t *s, surd_value b)
+{ PROFILE_START();
+  if (ISBOX(b)) {
+    _RETURN cell_of(b)->_value.box;
+  }
+  die("not a box");
+  _RETURN NIL_VALUE;
+}
+
+surd_value surd_setbox(surd_t *s, surd_value b, surd_value v)
+{ PROFILE_START();
+  if (ISBOX(b)) {
+    cell_of(b)->_value.box = v;
+    return b;
+  }
+  die("set-box!: not a box");
+  _RETURN NIL_VALUE;
 }
 
 #define READ_WHITESPACE " \t\n\r"
@@ -671,7 +754,7 @@ make_port_cell(surd_t *s, FILE *f, int noclose)
   p->pclose = noclose ? file_noclose : file_close;
   p->ptell = file_tell;
   p->underlying = f;
-  cell_t *c = surd_new_cell(s);
+  cell_t *c = make_cell(s);
   c->flags = TPORT;
   c->_value.port = p;
   _RETURN c;
@@ -761,11 +844,11 @@ trynumber(const char *buf, int bufi, long int *iout, double *flout)
   _RETURN 0;
 }
 
-static cell_t *readlist_(surd_t *s, struct port *in);
-static cell_t *readstring_(surd_t *s, struct port *in);
-static cell_t *readchar_(surd_t *s, struct port *in);
+static surd_value readlist_(surd_t *s, struct port *in);
+static surd_value readstring_(surd_t *s, struct port *in);
+static surd_value readchar_(surd_t *s, struct port *in);
 
-static cell_t *
+static surd_value
 read_(surd_t *s, struct port *in)
 { PROFILE_START();
 
@@ -773,7 +856,7 @@ read_(surd_t *s, struct port *in)
     int c = eatwhile(in, READ_WHITESPACE);
     switch (c) {
     case EOF:
-      _RETURN NULL;
+      _RETURN NIL_VALUE;  /* return nil to signal EOF of read */
     case ';':
       c = skipuntil(in, "\n");
       ungetc_(in, c);
@@ -782,9 +865,9 @@ read_(surd_t *s, struct port *in)
       fprintf(stderr, "read closing brace without open");
       exit(1);
     case '\'': {// quote
-      cell_t *sym = surd_intern(s, "quote");
-      cell_t *tmp = read_(s, in);
-      cell_t *tmp2 = surd_cons(s, tmp, s->nil);
+      surd_value sym = surd_intern(s, "quote");
+      surd_value tmp = read_(s, in);
+      surd_value tmp2 = surd_cons(s, tmp, 0);
       _RETURN surd_cons(s, sym, tmp2);
     }
     case '"': _RETURN readstring_(s, in);
@@ -809,19 +892,23 @@ read_(surd_t *s, struct port *in)
       long int intres = 0;
       double flores = 0.0;
       switch (trynumber(buf, bufi, &intres, &flores)) {
-      case 0: /* not a number, symbol */
-        _RETURN surd_intern(s, buf);
-      case 1: /* int */
-        {
-          cell_t *tmp = surd_new_cell(s);
-          surd_num_init(s, tmp, intres);
-          _RETURN tmp;
+      case 0: {
+        /* not a number, symbol */
+        surd_value sym = surd_intern(s, buf);
+
+        /* is it a known value? */
+        if (sym == s->TRUE) {
+          return TRUE_VALUE;
         }
+        _RETURN sym;
+      }
+      case 1: /* int */
+        _RETURN surd_fixnum(s, intres);
       case 2: /* float */
         fprintf(stderr, "error: unsupported float");
         exit(1);
       default:
-        fprintf(stderr, "error: trynumber _RETURNed bad\n");
+        fprintf(stderr, "error: trynumber returned bad\n");
         exit(1);
       }
     }
@@ -830,24 +917,24 @@ read_(surd_t *s, struct port *in)
 
   fprintf(stderr, "read_ should never reach this\n");
   exit(1);
-  _RETURN NULL;
+  _RETURN NIL_VALUE;
 #undef SYMBUF_LEN
 }
 
-static cell_t *
+static surd_value
 readlist_(surd_t *s, struct port *in)
 { PROFILE_START();
 
   int c = eatwhile(in, READ_WHITESPACE);
-  if (c == ')') { _RETURN s->nil; }
-  if (c == EOF) { _RETURN s->eof; }
+  if (c == ')') { _RETURN NIL_VALUE; }
+  if (c == EOF) { _RETURN EOF_VALUE; }
   ungetc_(in, c);
-  cell_t *obj = read_(s, in);
-  cell_t *list = readlist_(s, in);
+  surd_value obj = read_(s, in);
+  surd_value list = readlist_(s, in);
   _RETURN surd_cons(s, obj, list);
 }
 
-static cell_t *
+static surd_value
 readstring_(surd_t *s, struct port *in)
 { PROFILE_START();
 
@@ -879,16 +966,16 @@ readstring_(surd_t *s, struct port *in)
   }
   buf[bufi] = '\0';
 
-  cell_t *str = surd_new_cell(s);
+  cell_t *str = make_cell(s);
   str->flags = TSTRING;
   str->_value.str.buffer = strdup(buf);
   str->_value.str.length = bufi;
-  _RETURN str;
+  _RETURN value_of(str);
 
 #undef STRLEN
 }
 
-static cell_t *
+static surd_value
 readchar_(surd_t *s, struct port *in)
 { PROFILE_START();
 
@@ -901,7 +988,7 @@ readchar_(surd_t *s, struct port *in)
   char buf[16];
   int bufi = 0;
   int c3 = getc_(in);
-  if (c3 == EOF) { _RETURN s->eof; }
+  if (c3 == EOF) { _RETURN EOF_VALUE; }
   buf[bufi++] = c3;
   /* is this a named character? */
   c3 = getc_(in);
@@ -927,19 +1014,17 @@ readchar_(surd_t *s, struct port *in)
     fprintf(stderr, "read: unknown character name: #\\%s\n", buf);
     exit(1);
   }
-  cell_t *tmp = surd_new_cell(s);
-  surd_num_init(s, tmp, chval);
-  _RETURN tmp;
+  _RETURN surd_fixnum(s, chval);
 }
 
 #undef READ_DELIMS
 #undef READ_WHITESPACE
 
-cell_t *
+surd_value
 surd_read(surd_t *s, FILE *in)
 { PROFILE_START();
 
-  cell_t *tmp;
+  surd_value tmp;
   struct port p;
   p.pgetc = file_getc;
   p.pungetc = file_ungetc;
@@ -952,43 +1037,44 @@ surd_read(surd_t *s, FILE *in)
 }
 
 static void
-write_cell_(surd_t *s, FILE *out, cell_t *exp, int quote_strings)
+write_cell_(surd_t *s, FILE *out, surd_value exp, int quote_strings)
 { PROFILE_START();
 
   int sep = 0;
-  cell_t *tmp;
+  surd_value tmp;
 
-  if (exp == s->nil) {
+  if (ISNIL(exp)) {
     fprintf(out, "()");
   }
   else if (ISFIXNUM(exp)) {
-    fprintf(out, "%d", exp->_value.num);
+    fprintf(out, "%" PRId64, fixnum_of(exp));
   }
   else if (ISSYM(exp)) {
-    fprintf(out, "%s", internpool_tostring(s->interns, exp->_value.num));
+    fprintf(out, "%s", internpool_tostring(s->interns, symbol_id_of(exp)));
   }
   else if (ISSTR(exp)) {
+    cell_t *c = cell_of(exp);
     if (quote_strings) {
       fprintf(out, "\"");
-      for (size_t i = 0; i < exp->_value.str.length; i++) {
-        char c = exp->_value.str.buffer[i];
-        if (c == '"') { fprintf(out, "\\\""); }
-        else if (c == '\\') { fprintf(out, "\\\\"); }
-        else if (c == '\n') { fprintf(out, "\\n"); }
-        else if (c == '\t') { fprintf(out, "\\t"); }
-        else { fprintf(out, "%c", c); }
+      for (size_t i = 0; i < c->_value.str.length; i++) {
+        char ch = c->_value.str.buffer[i];
+        if (ch == '"') { fprintf(out, "\\\""); }
+        else if (ch == '\\') { fprintf(out, "\\\\"); }
+        else if (ch == '\n') { fprintf(out, "\\n"); }
+        else if (ch == '\t') { fprintf(out, "\\t"); }
+        else { fprintf(out, "%c", ch); }
       }
       fprintf(out, "\"");
     } else {
-      for (size_t i = 0; i < exp->_value.str.length; i++) {
-        fprintf(out, "%c", exp->_value.str.buffer[i]);
+      for (size_t i = 0; i < c->_value.str.length; i++) {
+        fprintf(out, "%c", c->_value.str.buffer[i]);
       }
     }
   }
   else if (ISCONS(exp)) {
     fprintf(out, "(");
     tmp = exp;
-    while (tmp != s->nil) {
+    while (!ISNIL(tmp)) {
       if (sep) { fprintf(out, " "); }
       if (ISCONS(tmp)) {
         write_cell_(s, out, CAR(tmp), quote_strings);
@@ -1009,7 +1095,7 @@ write_cell_(surd_t *s, FILE *out, cell_t *exp, int quote_strings)
     fprintf(out, "<#primitive: %p>", (void *)exp);
   }
   else if (ISPORT(exp)) {
-    fprintf(out, "<#port: %p>", (void *)exp->_value.port->underlying);
+    fprintf(out, "<#port: %p>", (void *)cell_of(exp)->_value.port->underlying);
   }
   else {
     fprintf(out, "umm...");
@@ -1017,13 +1103,13 @@ write_cell_(surd_t *s, FILE *out, cell_t *exp, int quote_strings)
 }
 
 void
-surd_display(surd_t *s, FILE *out, cell_t *exp)
+surd_display(surd_t *s, FILE *out, surd_value exp)
 { PROFILE_START();
   write_cell_(s, out, exp, 0);
 }
 
 void
-surd_write(surd_t *s, FILE *out, cell_t *exp)
+surd_write(surd_t *s, FILE *out, surd_value exp)
 { PROFILE_START();
   write_cell_(s, out, exp, 1);
 }
@@ -1034,293 +1120,307 @@ surd_write(surd_t *s, FILE *out, cell_t *exp)
 /*   _RETURN NULL; */
 /* } */
 
-static cell_t *
-apply_prim(surd_t *s, cell_t *prim, cell_t *args)
+static surd_value
+apply_prim(surd_t *s, surd_value prim, surd_value args)
 { PROFILE_START();
 
-  // how many times can we recurse in `load`? simple way to prevent
-  // cycles
 #define MAX_LOAD_DEPTH 10
 
   int carity = surd_list_length(s, args);
-  if (carity == prim->_value.primitive.arity ||
-      prim->_value.primitive.arity == -1) {
+  cell_t *prim_cell = cell_of(prim);
+  if (carity == prim_cell->_value.primitive.arity ||
+      prim_cell->_value.primitive.arity == -1) {
 
-    switch (prim->_value.primitive.num) {
+    switch (prim_cell->_value.primitive.num) {
     case PRIM_CONS:
       _RETURN surd_cons(s, CAR(args), CAR(CDR(args)));
     case PRIM_FIRST: {
-      cell_t *arg1 = CAR(args);
+      surd_value arg1 = CAR(args);
       if (ISCONS(arg1)) {
         _RETURN CAR(arg1);
       }
       if (ISSTR(arg1)) {
-        if (arg1->_value.str.length == 0) {
-          _RETURN s->nil;
+        cell_t *c = cell_of(arg1);
+        if (c->_value.str.length == 0) {
+          _RETURN NIL_VALUE;
         }
-        cell_t *tmp = surd_new_cell(s);
-        surd_num_init(s, tmp, (unsigned char)arg1->_value.str.buffer[0]);
-        _RETURN tmp;
+        _RETURN surd_fixnum(s, (unsigned char)c->_value.str.buffer[0]);
       }
       die("cons or string required for primitive first");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_REST: {
-      cell_t *arg1 =CAR(args);
+      surd_value arg1 = CAR(args);
       if (ISCONS(arg1)) {
         _RETURN CDR(arg1);
       }
       if (ISSTR(arg1)) {
-        if (arg1->_value.str.length == 0) {
-          _RETURN s->nil;
+        cell_t *c = cell_of(arg1);
+        if (c->_value.str.length == 0) {
+          _RETURN NIL_VALUE;
         }
-        cell_t *str = surd_new_cell(s);
+        cell_t *str = make_cell(s);
         str->flags = TSTRING;
-        str->_value.str.buffer = strdup(arg1->_value.str.buffer + 1);
-        str->_value.str.length = arg1->_value.str.length - 1;
-        _RETURN str;
+        str->_value.str.buffer = strdup(c->_value.str.buffer + 1);
+        str->_value.str.length = c->_value.str.length - 1;
+        _RETURN value_of(str);
       }
       die("cons or string required for primitive rest");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_NTH: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (ISCONS(arg2) && ISFIXNUM(arg1)) {
-        cell_t *current = arg2;
-        for (int i = arg1->_value.num; i > 0; i--) {
-          if (current == s->nil) {
+        surd_value current = arg2;
+        for (int64_t i = fixnum_of(arg1); i > 0; i--) {
+          if (ISNIL(current)) {
             die("nth ran out of conses");
-            _RETURN s->nil;
+            _RETURN NIL_VALUE;
           }
           current = CDR(current);
         }
         if (ISCONS(current)) { _RETURN CAR(current); }
         die("nth ran out of conses");
-        _RETURN s->nil;
+        _RETURN NIL_VALUE;
       }
       die("int and cons required for primitive nth");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_CONSP:
-      _RETURN ISCONS(CAR(args)) ? s->t: s->nil;
+      _RETURN ISCONS(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_NILP:
-      _RETURN ISNIL(CAR(args)) ? s->t : s->nil;
+      _RETURN ISNIL(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_EOFP:
-      _RETURN (CAR(args) == s->eof) ? s->t : s->nil;
+      _RETURN (CAR(args) == EOF_VALUE) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_FIXNUMP:
-      _RETURN ISFIXNUM(CAR(args)) ? s->t : s->nil;
+      _RETURN ISFIXNUM(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_SYMBOLP:
-      _RETURN ISSYM(CAR(args)) ? s->t : s->nil;
+      _RETURN ISSYM(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_STRINGP:
-      _RETURN ISSTR(CAR(args)) ? s->t : s->nil;
+      _RETURN ISSTR(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_PROCEDUREP: {
-      cell_t *arg1 = CAR(args);
+      surd_value arg1 = CAR(args);
       _RETURN (ISPRIM(arg1) || ISCLOSURE(arg1) || ISFOREIGN(arg1)) ?
-        s->t : s->nil;
+        TRUE_VALUE : NIL_VALUE;
     }
     case PRIM_CLOSUREP:
-      _RETURN ISCLOSURE(CAR(args)) ? s->t : s->nil;
+      _RETURN ISCLOSURE(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_PRIMITIVEP:
-      _RETURN ISPRIM(CAR(args)) ? s->t : s->nil;
+      _RETURN ISPRIM(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_FOREIGNP:
-      _RETURN ISFOREIGN(CAR(args)) ? s->t : s->nil;
+      _RETURN ISFOREIGN(CAR(args)) ? TRUE_VALUE : NIL_VALUE;
     case PRIM_PLUS: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
-        cell_t *tmp = surd_new_cell(s);
-        surd_num_init(s, tmp, arg1->_value.num + arg2->_value.num);
-        _RETURN tmp;
+        _RETURN surd_fixnum(s, fixnum_of(arg1) + fixnum_of(arg2));
       }
       die("attempt to add a non fixnum");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_MINUS: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
-        cell_t *tmp = surd_new_cell(s);
-        surd_num_init(s, tmp, arg1->_value.num - arg2->_value.num);
-        _RETURN tmp;
+        _RETURN surd_fixnum(s, fixnum_of(arg1) - fixnum_of(arg2));
       }
       die("attempt to subtract a non fixnum");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_MULT: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
-        cell_t *tmp = surd_new_cell(s);
-        surd_num_init(s, tmp, arg1->_value.num * arg2->_value.num);
-        _RETURN tmp;
+        _RETURN surd_fixnum(s, fixnum_of(arg1) * fixnum_of(arg2));
       }
       die("attempt to multiply a non fixnum");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_DIV: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
-        if (arg2->_value.num == 0) {
+        int64_t divisor = fixnum_of(arg2);
+        if (divisor == 0) {
           die("attempt to divide by 0");
-          _RETURN s->nil;
+          _RETURN NIL_VALUE;
         }
-        cell_t *tmp = surd_new_cell(s);
-        surd_num_init(s, tmp, arg1->_value.num / arg2->_value.num);
-        _RETURN tmp;
+        _RETURN surd_fixnum(s, fixnum_of(arg1) / divisor);
       }
       die("attempt to divide a non fixnum");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_MOD: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
-        if (arg2->_value.num == 0) {
+        int64_t divisor = fixnum_of(arg2);
+        if (divisor == 0) {
           die("attempt to divide by 0");
-          _RETURN s->nil;
+          _RETURN NIL_VALUE;
         }
-        cell_t *tmp = surd_new_cell(s);
-        surd_num_init(s, tmp, arg1->_value.num % arg2->_value.num);
-        _RETURN tmp;
+        _RETURN surd_fixnum(s, fixnum_of(arg1) % divisor);
       }
       die("attempt to mod by non fixnum");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_LT: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
-        if (arg1->_value.num < arg2->_value.num) {
-          _RETURN s->t;
+        if (fixnum_of(arg1) < fixnum_of(arg2)) {
+          _RETURN TRUE_VALUE;
         }
-        _RETURN s->nil;
+        _RETURN NIL_VALUE;
       }
       die("attempt to compare non fixnums");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_EQ: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (arg1 == arg2) {
-        _RETURN s->t;
+        _RETURN TRUE_VALUE;
       }
       if (ISFIXNUM(arg2) && ISFIXNUM(arg1)) {
-        if (arg1->_value.num == arg2->_value.num) {
-          _RETURN s->t;
+        if (fixnum_of(arg1) == fixnum_of(arg2)) {
+          _RETURN TRUE_VALUE;
         }
-        _RETURN s->nil;
+        _RETURN NIL_VALUE;
       }
       if (ISSYM(arg2) && ISSYM(arg1)) {
-        if (arg1->_value.num == arg2->_value.num) {
-          _RETURN s->t;
+        if (symbol_id_of(arg1) == symbol_id_of(arg2)) {
+          _RETURN TRUE_VALUE;
         }
-        _RETURN s->nil;
+        _RETURN NIL_VALUE;
       }
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     case PRIM_READ: {
-      cell_t *arg1 = CAR(args);
+      surd_value arg1 = CAR(args);
       if (!ISPORT(arg1)) { die("read requires a port"); }
-      cell_t *result = read_(s, arg1->_value.port);
-      _RETURN result ? result : s->eof;
+      surd_value result = read_(s, cell_of(arg1)->_value.port);
+      _RETURN result ? result : EOF_VALUE;
     }
     case PRIM_WRITE: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (!ISPORT(arg2)) { die("write requires a port as second argument"); }
-      surd_write(s, (FILE *)arg2->_value.port->underlying, arg1);
+      surd_write(s, (FILE *)cell_of(arg2)->_value.port->underlying, arg1);
       _RETURN arg1;
     }
     case PRIM_OPEN: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (!ISSTR(arg1) || !ISSTR(arg2)) { die("open requires two strings"); }
-      FILE *f = fopen(arg1->_value.str.buffer, arg2->_value.str.buffer);
+      cell_t *c1 = cell_of(arg1);
+      cell_t *c2 = cell_of(arg2);
+      FILE *f = fopen(c1->_value.str.buffer, c2->_value.str.buffer);
       if (!f) { die("open failed"); }
-      _RETURN make_port_cell(s, f, 0);
+      _RETURN value_of(make_port_cell(s, f, 0));
     }
     case PRIM_CLOSE: {
-      cell_t *arg1 = CAR(args);
+      surd_value arg1 = CAR(args);
       if (!ISPORT(arg1)) { die("close requires a port"); }
-      close_(arg1->_value.port);
+      close_(cell_of(arg1)->_value.port);
       _RETURN arg1;
     }
     case PRIM_GETBYTE: {
-      cell_t *arg1 = CAR(args);
+      surd_value arg1 = CAR(args);
       if (!ISPORT(arg1)) { die("get-byte requires a port"); }
-      int ch = getc_(arg1->_value.port);
-      if (ch == EOF) { _RETURN s->eof; }
-      cell_t *tmp = surd_new_cell(s);
-      surd_num_init(s, tmp, ch);
-      _RETURN tmp;
+      int ch = getc_(cell_of(arg1)->_value.port);
+      if (ch == EOF) { _RETURN EOF_VALUE; }
+      _RETURN surd_fixnum(s, ch);
     }
     case PRIM_PUTBYTE: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (!ISFIXNUM(arg1) || !ISPORT(arg2)) { die("put-byte requires fixnum and port"); }
-      putc_(arg2->_value.port, arg1->_value.num);
+      putc_(cell_of(arg2)->_value.port, fixnum_of(arg1));
       _RETURN arg1;
     }
     case PRIM_PUTSTR: {
-      cell_t *arg1 = CAR(args);
-      cell_t *arg2 = CAR(CDR(args));
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
       if (!ISSTR(arg1) || !ISPORT(arg2)) { die("put-str requires string and port"); }
-      for (size_t i = 0; i < arg1->_value.str.length; i++) {
-        putc_(arg2->_value.port, arg1->_value.str.buffer[i]);
+      cell_t *c1 = cell_of(arg1);
+      for (size_t i = 0; i < c1->_value.str.length; i++) {
+        putc_(cell_of(arg2)->_value.port, c1->_value.str.buffer[i]);
       }
       _RETURN arg1;
     }
     case PRIM_LOAD: {
-      cell_t *arg1 = CAR(args);
+      surd_value arg1 = CAR(args);
       if (!ISSTR(arg1)) { die("load requires a string filename"); }
       if (s->load_depth >= 10) { die("load depth exceeded (max 10)"); }
-      FILE *f = fopen(arg1->_value.str.buffer, "r");
+      FILE *f = fopen(cell_of(arg1)->_value.str.buffer, "r");
       if (!f) { die("could not open file for load"); }
       s->load_depth++;
-      cell_t *result = surd_load(s, f);
+      surd_value result = surd_load(s, f);
       s->load_depth--;
       fclose(f);
-      _RETURN result ? result : s->nil;
+      _RETURN result ? result : NIL_VALUE;
     }
     case PRIM_STRLEN: {
-      cell_t *arg1 = CAR(args);
+      surd_value arg1 = CAR(args);
       if (ISSTR(arg1)) {
-        cell_t *tmp = surd_new_cell(s);
-        surd_num_init(s, tmp, arg1->_value.str.length);
-        _RETURN tmp;
+        _RETURN surd_fixnum(s, cell_of(arg1)->_value.str.length);
       }
       die("strlen requires a string");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
+    case PRIM_BOX: {
+      surd_value arg1 = CAR(args);
+      _RETURN surd_box(s, arg1);
+    }
+    case PRIM_UNBOX: {
+      surd_value arg1 = CAR(args);
+      if (ISBOX(arg1)) {
+        _RETURN cell_of(arg1)->_value.box;
+      }
+      die("unbox requires a box");
+      _RETURN NIL_VALUE;
+    }
+    case PRIM_SETBOX: {
+      surd_value arg1 = CAR(args);
+      surd_value arg2 = CAR(CDR(args));
+      if (ISBOX(arg1)) {
+        _RETURN surd_setbox(s, arg1, arg2);
+      }
+      fprintf(stderr, "IT's a %d\n", cell_of(arg1)->flags);
+      fflush(stderr);
+      die("strlen requires a string");
+      _RETURN NIL_VALUE;
+    }
+
     default:
       fprintf(stderr,"unknown primitive\n");
       exit(1);
     }
   }
   die("arity mismatch");
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
 
 #undef MAX_LOAD_DEPTH
 }
 
-static cell_t *
-apply_foreign(surd_t *s, cell_t *foreign, cell_t *args)
+static surd_value
+apply_foreign(surd_t *s, surd_value foreign, surd_value args)
 { PROFILE_START();
 
   die("not implemented");
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
 }
 
 
-static cell_t *
-eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
+static surd_value
+eval_loop(surd_t *s, surd_value exp, frame_t *env, int top)
 { PROFILE_START();
 
   for (;;) {
   recur:
-    if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || ISSTR(exp) || exp == s->nil) {
+    if (ISFIXNUM(exp) || ISCLOSURE(exp) || ISPRIM(exp) || ISSTR(exp) || ISNIL(exp) || ISTRUE(exp) || ISEOF(exp)) {
       _RETURN exp;
     }
     else if (ISSYM(exp)) {
@@ -1329,22 +1429,22 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
 
     if (!ISCONS(exp)) {
       die("don't know how to evaluate this");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
 
-    cell_t *car = CAR(exp);
+    surd_value car = CAR(exp);
     if (surd_symbol_equal(s, car, s->QUOTE)) {
-      cell_t *tmp = CDR(exp);
+      surd_value tmp = CDR(exp);
       if (ISCONS(tmp)) {
         _RETURN CAR(tmp);
       }
       die("in quote: attempted to take the car of nil");
-      _RETURN s->nil;
+      _RETURN NIL_VALUE;
     }
     else if (surd_symbol_equal(s, car, s->IF)) {
-      cell_t *condition = surd_car(s, surd_cdr(s, exp));
-      cell_t *test = eval_loop(s, condition, env, 0);
-      if (test == s->nil) { /* alternate */
+      surd_value condition = surd_car(s, surd_cdr(s, exp));
+      surd_value test = eval_loop(s, condition, env, 0);
+      if (ISNIL(test)) { /* alternate */
         exp = surd_car(s, surd_cdr(s, surd_cdr(s, surd_cdr(s, exp))));
       }
       else {
@@ -1355,34 +1455,33 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
     else if (surd_symbol_equal(s, car, s->LAM)) {
       if (surd_list_length(s, exp) < 2) {
         die("lam requires at least 2 arguments");
-        _RETURN s->nil;
+        _RETURN NIL_VALUE;
       }
       _RETURN surd_make_closure(s, exp, env);
     }
     else if (surd_symbol_equal(s, car, s->DEF)) {
       if (!top) {
         die("def cannot be called from non-toplevel expression");
-        _RETURN s->nil;
+        _RETURN NIL_VALUE;
       }
 
-      cell_t *symbol = surd_car(s, surd_cdr(s, exp));
-      cell_t *value = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
+      surd_value symbol = surd_car(s, surd_cdr(s, exp));
+      surd_value value = surd_car(s, surd_cdr(s, surd_cdr(s, exp)));
 
-      // TODO: check arity!
       if (ISSYM(symbol)) {
-        cell_t *evaled = eval_loop(s, value, env, 0);
+        surd_value evaled = eval_loop(s, value, env, 0);
         _env_insert(s, s->top_env, symbol, evaled);
         _RETURN evaled;
       }
       else {
-        die("def execpected symbol as a second argument");
-        _RETURN s->nil;
+        die("def expected symbol as a second argument");
+        _RETURN NIL_VALUE;
       }
     }
     else if (surd_symbol_equal(s, car, s->BEG)) {
-      cell_t *rest = CDR(exp);
-      cell_t *result = s->nil;
-      while (rest != s->nil) {
+      surd_value rest = CDR(exp);
+      surd_value result = 0;
+      while (!ISNIL(rest)) {
         result = eval_loop(s, CAR(rest), env, 0);
         rest = CDR(rest);
       }
@@ -1390,20 +1489,20 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
     }
     else {
       // apply
-      cell_t *op = eval_loop(s, car, env, 0);
-      cell_t *args = s->nil;
-      if (CDR(exp) != s->nil) {
-        cell_t *list = CDR(exp);
-        cell_t *tmp = eval_loop(s, CAR(list), env, 0);
-        cell_t *next = s->nil;
-        cell_t *next_next = s->nil;
-        cell_t *evaled = s->nil;
-        args = surd_cons(s, tmp, s->nil);
+      surd_value op = eval_loop(s, car, env, 0);
+      surd_value args = 0;
+      if (!ISNIL(CDR(exp))) {
+        surd_value list = CDR(exp);
+        surd_value tmp = eval_loop(s, CAR(list), env, 0);
+        surd_value next = 0;
+        surd_value next_next = 0;
+        surd_value evaled = 0;
+        args = surd_cons(s, tmp, 0);
         next = args;
         tmp = CDR(list);
-        while (tmp != s->nil && tmp) {
+        while (!ISNIL(tmp)) {
           evaled = eval_loop(s, CAR(tmp), env, 0);
-          next_next = surd_cons(s, evaled, s->nil);
+          next_next = surd_cons(s, evaled, 0);
           _setcdr(s, next, next_next);
           next = next_next;
           tmp = CDR(tmp);
@@ -1417,11 +1516,11 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
         _RETURN apply_foreign(s, op, args);
       }
       else if (ISCLOSURE(op)) {
-        cell_t *code = op->_value.closure.code;
-        frame_t *cenv = op->_value.closure.env;
+        surd_value code = cell_of(op)->_value.closure.code;
+        frame_t *cenv = cell_of(op)->_value.closure.env;
         env = _env_extend(s, cenv, surd_car(s, surd_cdr(s, code)), args);
-        cell_t *body_exprs = surd_cdr(s, surd_cdr(s, code));
-        if (CDR(body_exprs) != s->nil) {
+        surd_value body_exprs = surd_cdr(s, surd_cdr(s, code));
+        if (!ISNIL(CDR(body_exprs))) {
           exp = surd_cons(s, s->BEG, body_exprs);
         } else {
           exp = surd_car(s, body_exprs);
@@ -1430,36 +1529,36 @@ eval_loop(surd_t *s, cell_t *exp, frame_t *env, int top)
       }
       else {
         die("operator is not a procedure");
-        _RETURN s->nil;
+        _RETURN NIL_VALUE;
       }
     }
   }
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
 }
 
 
-cell_t *
-surd_eval(surd_t *s, cell_t *exp, frame_t *env, int top)
+surd_value
+surd_eval(surd_t *s, surd_value exp, frame_t *env, int top)
 { PROFILE_START();
 
   _RETURN eval_loop(s, exp, env, top);
 }
 
-cell_t *
-surd_apply(surd_t *s, cell_t *closure, cell_t *args)
+surd_value
+surd_apply(surd_t *s, surd_value closure, surd_value args)
 { PROFILE_START();
 
   die("not implemented");
-  _RETURN s->nil;
+  _RETURN NIL_VALUE;
 }
 
-cell_t *
+surd_value
 surd_load(surd_t *s, FILE *in)
 { PROFILE_START();
 
-  cell_t *tmp;
-  cell_t *last = s->nil;
-  while ((tmp = surd_read(s, in)) != NULL) {
+  surd_value tmp;
+  surd_value last = 0;
+  while ((tmp = surd_read(s, in)), tmp != 0) {
     last = surd_eval(s, tmp, surd_env(s), 1);
   }
   _RETURN last;
@@ -1472,14 +1571,14 @@ repl(surd_t *s)
 { PROFILE_START();
 
   int lc;
-  cell_t *cell;
+  surd_value val;
   for (lc = 0;; lc++) {
     printf("surd: %d> ", lc);
-    cell = surd_read(s, stdin);
-    if (cell) {
-      cell = surd_eval(s, cell, surd_env(s), 1);
+    val = surd_read(s, stdin);
+    if (val) {
+      val = surd_eval(s, val, surd_env(s), 1);
       printf("\n  #res:%d => ", lc);
-      surd_display(s, stdout, cell);
+      surd_display(s, stdout, val);
       printf("\n");
     }
     else {
